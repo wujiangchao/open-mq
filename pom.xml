@@ -28,6 +28,12 @@
     <modelVersion>4.0.0</modelVersion>
 
     <inceptionYear>2012</inceptionYear>
+    <modules>
+        <module>client</module>
+        <module>remoting</module>
+        <module>common</module>
+        <module>namesrv</module>
+    </modules>
     <groupId>com.open.mq</groupId>
     <artifactId>openmq-all</artifactId>
     <version>1.0-SNAPSHOT</version>
