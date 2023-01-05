@@ -33,6 +33,7 @@
         <module>remoting</module>
         <module>common</module>
         <module>namesrv</module>
+        <module>broker</module>
     </modules>
     <groupId>com.open.mq</groupId>
     <artifactId>openmq-all</artifactId>
