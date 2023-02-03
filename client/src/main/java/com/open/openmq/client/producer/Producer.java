@@ -1,6 +1,7 @@
 package com.open.openmq.client.producer;
 
 import com.open.openmq.client.MQAdmin;
+import com.open.openmq.client.exception.MQClientException;
 
 /**
  * @Description
