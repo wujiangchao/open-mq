@@ -8,4 +8,4 @@
 | namesrv      |元数据存储，原zk角色         |
 | remoting      | 事件分析bizlogic工程        |
 | proxy   | 热线分析parent工程      |
-| common | 通用能力     |
+| common | 通用能力     |工具|
