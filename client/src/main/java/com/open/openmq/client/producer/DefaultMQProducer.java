@@ -8,7 +8,7 @@ import com.open.openmq.client.exception.MQClientException;
  * @Date 2023/1/30 23:48
  * @Author jack wu
  */
-public class DefaultMQProducer extends ClientConfig implements Producer{
+public class DefaultMQProducer extends ClientConfig implements MQProducer {
 
     protected final transient DefaultMQProducerImpl defaultMQProducerImpl;
 

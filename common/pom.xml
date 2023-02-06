@@ -11,6 +11,10 @@
 
     <artifactId>openmq-common</artifactId>
 
+    <properties>
+        <project.root>${basedir}/..</project.root>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>com.alibaba</groupId>

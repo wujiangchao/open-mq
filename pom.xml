@@ -34,6 +34,9 @@
         <module>common</module>
         <module>namesrv</module>
         <module>broker</module>
+        <module>tools</module>
+        <module>controller</module>
+        <module>srvutil</module>
     </modules>
     <groupId>com.open.mq</groupId>
     <artifactId>openmq-all</artifactId>
@@ -122,26 +125,6 @@
         <sonar.jacoco.itReportPath>${project.basedir}/../test/target/jacoco-it.exec</sonar.jacoco.itReportPath>
         <sonar.exclusions>file:**/generated-sources/**,**/test/**</sonar.exclusions>
     </properties>
-
-    <!--<modules>
-        <module>client</module>
-        <module>common</module>
-        <module>broker</module>
-        <module>tools</module>
-        <module>store</module>
-        <module>namesrv</module>
-        <module>remoting</module>
-        <module>srvutil</module>
-        <module>filter</module>
-        <module>test</module>
-        <module>distribution</module>
-        <module>openmessaging</module>
-        <module>acl</module>
-        <module>example</module>
-        <module>container</module>
-        <module>controller</module>
-        <module>proxy</module>
-    </modules>-->
 
     <build>
         <plugins>

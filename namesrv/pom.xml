@@ -10,7 +10,10 @@
     <modelVersion>4.0.0</modelVersion>
 
     <artifactId>openmq-namesrv</artifactId>
-    <name>openmq-namesrv</name>
+
+    <properties>
+        <project.root>${basedir}/..</project.root>
+    </properties>
 
     <dependencies>
         <dependency>
@@ -46,5 +49,4 @@
             <artifactId>bcpkix-jdk15on</artifactId>
         </dependency>
     </dependencies>
-
 </project>
