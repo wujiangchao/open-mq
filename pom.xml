@@ -28,6 +28,11 @@
     <modelVersion>4.0.0</modelVersion>
 
     <inceptionYear>2012</inceptionYear>
+    <groupId>com.open.mq</groupId>
+    <artifactId>openmq-all</artifactId>
+    <version>1.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+
     <modules>
         <module>client</module>
         <module>remoting</module>
@@ -38,11 +43,6 @@
         <module>controller</module>
         <module>srvutil</module>
     </modules>
-    <groupId>com.open.mq</groupId>
-    <artifactId>openmq-all</artifactId>
-    <version>1.0-SNAPSHOT</version>
-    <packaging>pom</packaging>
-
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
