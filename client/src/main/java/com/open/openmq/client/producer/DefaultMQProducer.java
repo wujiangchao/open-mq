@@ -2,6 +2,7 @@ package com.open.openmq.client.producer;
 
 import com.open.openmq.client.ClientConfig;
 import com.open.openmq.client.exception.MQClientException;
+import com.open.openmq.client.impl.producer.DefaultMQProducerImpl;
 
 /**
  * @Description 默认的生产者实现
@@ -162,7 +163,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
 
     @Override
     public SendResult send(Collection<Message> msgs) throws MQClientException, RemotingException, MQBrokerException, InterruptedException {
-        return null;
+        return this.defaultMQProducerImpl.send(batch(msgs));
     }
 
     @Override
