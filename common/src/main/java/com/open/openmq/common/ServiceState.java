@@ -1,4 +1,4 @@
-package org.apache.rocketmq.common;
+package com.open.openmq.common;
 
 
 public enum ServiceState {
