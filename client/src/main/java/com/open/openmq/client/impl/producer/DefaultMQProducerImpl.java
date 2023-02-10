@@ -1,8 +1,14 @@
 package com.open.openmq.client.impl.producer;
 
+import com.open.openmq.client.Validators;
 import com.open.openmq.client.exception.MQClientException;
+import com.open.openmq.common.ServiceState;
+import com.open.openmq.common.message.Message;
 
 import java.util.Arrays;
+import java.util.Random;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 /**
  * @Description TODO
@@ -11,6 +17,11 @@ import java.util.Arrays;
  */
 public class DefaultMQProducerImpl {
     private ServiceState serviceState = ServiceState.CREATE_JUST;
+    private final Random random = new Random();
+    private final ConcurrentMap<String/* topic */, TopicPublishInfo> topicPublishInfoTable =
+            new ConcurrentHashMap<String, TopicPublishInfo>();
+    private MQClientInstance mQClientFactory;
+
 
 
     /**
@@ -32,8 +43,9 @@ public class DefaultMQProducerImpl {
             final SendCallback sendCallback,
             final long timeout
     ) throws MQClientException, RemotingException, MQBrokerException, InterruptedException {
-        //
+        //确定生产者为running转态
         this.makeSureStateOK();
+        //验证msg的重要属性
         Validators.checkMessage(msg, this.defaultMQProducer);
         final long invokeID = random.nextLong();
         long beginTimestampFirst = System.currentTimeMillis();
@@ -170,4 +182,23 @@ public class DefaultMQProducerImpl {
                     null);
         }
     }
+
+    private TopicPublishInfo tryToFindTopicPublishInfo(final String topic) {
+        TopicPublishInfo topicPublishInfo = this.topicPublishInfoTable.get(topic);
+        if (null == topicPublishInfo || !topicPublishInfo.ok()) {
+            this.topicPublishInfoTable.putIfAbsent(topic, new TopicPublishInfo());
+            //从Name server 服务器获取topic路由信息进行更新
+            this.mQClientFactory.updateTopicRouteInfoFromNameServer(topic);
+            topicPublishInfo = this.topicPublishInfoTable.get(topic);
+        }
+
+        if (topicPublishInfo.isHaveTopicRouterInfo() || topicPublishInfo.ok()) {
+            return topicPublishInfo;
+        } else {
+            this.mQClientFactory.updateTopicRouteInfoFromNameServer(topic, true, this.defaultMQProducer);
+            topicPublishInfo = this.topicPublishInfoTable.get(topic);
+            return topicPublishInfo;
+        }
+    }
+
 }
