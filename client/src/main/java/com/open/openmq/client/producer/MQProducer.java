@@ -2,6 +2,10 @@ package com.open.openmq.client.producer;
 
 import com.open.openmq.client.MQAdmin;
 import com.open.openmq.client.exception.MQClientException;
+import com.open.openmq.common.message.Message;
+import com.open.openmq.common.message.MessageQueue;
+
+import java.util.Collection;
 
 /**
  * @Description

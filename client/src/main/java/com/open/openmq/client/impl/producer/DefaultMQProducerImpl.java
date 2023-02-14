@@ -2,10 +2,15 @@ package com.open.openmq.client.impl.producer;
 
 import com.open.openmq.client.Validators;
 import com.open.openmq.client.exception.MQClientException;
+import com.open.openmq.client.impl.CommunicationMode;
+import com.open.openmq.client.impl.factory.MQClientInstance;
+import com.open.openmq.client.producer.SendResult;
 import com.open.openmq.common.ServiceState;
 import com.open.openmq.common.message.Message;
+import com.open.openmq.common.message.MessageQueue;
 
 import java.util.Arrays;
+import java.util.List;
 import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -21,7 +26,6 @@ public class DefaultMQProducerImpl {
     private final ConcurrentMap<String/* topic */, TopicPublishInfo> topicPublishInfoTable =
             new ConcurrentHashMap<String, TopicPublishInfo>();
     private MQClientInstance mQClientFactory;
-
 
 
     /**
@@ -57,11 +61,13 @@ public class DefaultMQProducerImpl {
             MessageQueue mq = null;
             Exception exception = null;
             SendResult sendResult = null;
+            // 同步执行需要设置一个最大重试次数
             int timesTotal = communicationMode == CommunicationMode.SYNC ? 1 + this.defaultMQProducer.getRetryTimesWhenSendFailed() : 1;
             int times = 0;
             String[] brokersSent = new String[timesTotal];
             for (; times < timesTotal; times++) {
                 String lastBrokerName = null == mq ? null : mq.getBrokerName();
+                // 选择投递的queue，会自动规避最近故障的queue
                 MessageQueue mqSelected = this.selectOneMessageQueue(topicPublishInfo, lastBrokerName);
                 if (mqSelected != null) {
                     mq = mqSelected;
@@ -69,10 +75,12 @@ public class DefaultMQProducerImpl {
                     try {
                         beginTimestampPrev = System.currentTimeMillis();
                         if (times > 0) {
-                            //Reset topic with namespace during resend.
+                            // 为了防止namespace状态发生变更，重试期间利用namespace重新解析topic名称
+                            // Reset topic with namespace during resend.
                             msg.setTopic(this.defaultMQProducer.withNamespace(msg.getTopic()));
                         }
                         long costTime = beginTimestampPrev - beginTimestampFirst;
+                        // 如果超时则break停止投递
                         if (timeout < costTime) {
                             callTimeout = true;
                             break;
@@ -80,6 +88,7 @@ public class DefaultMQProducerImpl {
 
                         sendResult = this.sendKernelImpl(msg, mq, communicationMode, sendCallback, topicPublishInfo, timeout - costTime);
                         endTimestamp = System.currentTimeMillis();
+                        // 更新发送超时记录，用于规避再次故障
                         this.updateFaultItem(mq.getBrokerName(), endTimestamp - beginTimestampPrev, false);
                         switch (communicationMode) {
                             case ASYNC:
@@ -89,6 +98,7 @@ public class DefaultMQProducerImpl {
                             case SYNC:
                                 if (sendResult.getSendStatus() != SendStatus.SEND_OK) {
                                     if (this.defaultMQProducer.isRetryAnotherBrokerWhenNotStoreOK()) {
+                                        // 失败则尝试投递其他broker
                                         continue;
                                     }
                                 }
@@ -138,6 +148,7 @@ public class DefaultMQProducerImpl {
                 }
             }
 
+            // 是否有响应数据，有则直接响应结果
             if (sendResult != null) {
                 return sendResult;
             }
@@ -183,21 +194,46 @@ public class DefaultMQProducerImpl {
         }
     }
 
+    public MessageQueue selectOneMessageQueue(final TopicPublishInfo tpInfo, final String lastBrokerName) {
+        return this.mqFaultStrategy.selectOneMessageQueue(tpInfo, lastBrokerName);
+    }
+
+
+    /**
+     * 路由信息决定了消息被发送到哪一个Broker上；
+     * tryToFindTopicPublishInfo是查找路由信息的入口方法；
+     * 如果生产者中已经缓存则直接使用；
+     * 如果没有缓存，则从NameServer中查询该topic的路由信息；
+     * 查询到则先缓存，然后返回，如果没有查询到则抛出异常。
+     *
+     * @param topic
+     * @return
+     */
     private TopicPublishInfo tryToFindTopicPublishInfo(final String topic) {
         TopicPublishInfo topicPublishInfo = this.topicPublishInfoTable.get(topic);
         if (null == topicPublishInfo || !topicPublishInfo.ok()) {
             this.topicPublishInfoTable.putIfAbsent(topic, new TopicPublishInfo());
-            //从Name server 服务器获取topic路由信息进行更新
+            //如果没有缓存，则向NameServer请求更新路由信息————注意：如果查询不到则抛出异常，关注下面的方法
             this.mQClientFactory.updateTopicRouteInfoFromNameServer(topic);
             topicPublishInfo = this.topicPublishInfoTable.get(topic);
         }
 
+        //路由信息有效，则if，否则else
         if (topicPublishInfo.isHaveTopicRouterInfo() || topicPublishInfo.ok()) {
             return topicPublishInfo;
         } else {
+            //路由信息无效，则向NameServer请求更新路由信息————注意：如果查询不到则抛出异常，关注下面的方法
             this.mQClientFactory.updateTopicRouteInfoFromNameServer(topic, true, this.defaultMQProducer);
             topicPublishInfo = this.topicPublishInfoTable.get(topic);
             return topicPublishInfo;
+        }
+    }
+
+    private void validateNameServerSetting() throws MQClientException {
+        List<String> nsList = this.getMqClientFactory().getMQClientAPIImpl().getNameServerAddressList();
+        if (null == nsList || nsList.isEmpty()) {
+            throw new MQClientException(
+                    "No name server address, please set it." + FAQUrl.suggestTodo(FAQUrl.NAME_SERVER_ADDR_NOT_EXIST_URL), null).setResponseCode(ClientErrorCode.NO_NAME_SERVER_EXCEPTION);
         }
     }
 
