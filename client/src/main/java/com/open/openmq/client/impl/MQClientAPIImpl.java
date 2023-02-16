@@ -6,6 +6,7 @@ import com.open.openmq.client.impl.producer.SendCallback;
 import com.open.openmq.client.impl.producer.TopicPublishInfo;
 import com.open.openmq.client.producer.SendResult;
 import com.open.openmq.common.message.Message;
+import com.open.openmq.common.message.MessageConst;
 
 import java.util.concurrent.atomic.AtomicInteger;
 

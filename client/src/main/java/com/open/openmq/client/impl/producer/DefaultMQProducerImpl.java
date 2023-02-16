@@ -2,12 +2,17 @@ package com.open.openmq.client.impl.producer;
 
 import com.open.openmq.client.Validators;
 import com.open.openmq.client.exception.MQClientException;
+import com.open.openmq.client.hook.SendMessageContext;
 import com.open.openmq.client.impl.CommunicationMode;
 import com.open.openmq.client.impl.factory.MQClientInstance;
+import com.open.openmq.client.latency.MQFaultStrategy;
+import com.open.openmq.client.producer.DefaultMQProducer;
 import com.open.openmq.client.producer.SendResult;
 import com.open.openmq.common.ServiceState;
 import com.open.openmq.common.message.Message;
+import com.open.openmq.common.message.MessageConst;
 import com.open.openmq.common.message.MessageQueue;
+import com.open.openmq.common.message.MessageType;
 
 import java.util.Arrays;
 import java.util.List;
@@ -26,6 +31,12 @@ public class DefaultMQProducerImpl {
     private final ConcurrentMap<String/* topic */, TopicPublishInfo> topicPublishInfoTable =
             new ConcurrentHashMap<String, TopicPublishInfo>();
     private MQClientInstance mQClientFactory;
+    private MQFaultStrategy mqFaultStrategy = new MQFaultStrategy();
+    private final DefaultMQProducer defaultMQProducer;
+
+    public DefaultMQProducerImpl(final DefaultMQProducer defaultMQProducer) {
+        this(defaultMQProducer, null);
+    }
 
 
     /**
