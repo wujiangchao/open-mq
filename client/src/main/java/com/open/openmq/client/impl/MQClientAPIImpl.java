@@ -1,5 +1,6 @@
 package com.open.openmq.client.impl;
 
+import com.open.openmq.client.hook.SendMessageContext;
 import com.open.openmq.client.impl.factory.MQClientInstance;
 import com.open.openmq.client.impl.producer.DefaultMQProducerImpl;
 import com.open.openmq.client.impl.producer.SendCallback;
