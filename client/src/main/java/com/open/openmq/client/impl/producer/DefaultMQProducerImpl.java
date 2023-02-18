@@ -1,6 +1,8 @@
 package com.open.openmq.client.impl.producer;
 
 import com.open.openmq.client.Validators;
+import com.open.openmq.client.common.ClientErrorCode;
+import com.open.openmq.client.exception.MQBrokerException;
 import com.open.openmq.client.exception.MQClientException;
 import com.open.openmq.client.hook.SendMessageContext;
 import com.open.openmq.client.impl.CommunicationMode;
@@ -13,6 +15,10 @@ import com.open.openmq.common.message.Message;
 import com.open.openmq.common.message.MessageConst;
 import com.open.openmq.common.message.MessageQueue;
 import com.open.openmq.common.message.MessageType;
+import com.open.openmq.remoting.exception.RemotingConnectException;
+import com.open.openmq.remoting.exception.RemotingException;
+import com.open.openmq.remoting.exception.RemotingTimeoutException;
+import com.open.openmq.remoting.exception.RemotingTooMuchRequestException;
 
 import java.util.Arrays;
 import java.util.List;

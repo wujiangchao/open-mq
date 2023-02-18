@@ -1,10 +1,13 @@
 package com.open.openmq.client.producer;
 
 import com.open.openmq.client.ClientConfig;
+import com.open.openmq.client.exception.MQBrokerException;
 import com.open.openmq.client.exception.MQClientException;
 import com.open.openmq.client.impl.producer.DefaultMQProducerImpl;
+import com.open.openmq.client.impl.producer.SendCallback;
 import com.open.openmq.common.message.Message;
 import com.open.openmq.common.message.MessageQueue;
+import com.open.openmq.remoting.exception.RemotingException;
 
 import java.util.Collection;
 
@@ -80,6 +83,15 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
 
     }
 
+    /**
+     * 只发送消息，queue的选择由默认的算法来实现
+     * @param msg
+     * @return
+     * @throws MQClientException
+     * @throws RemotingException
+     * @throws MQBrokerException
+     * @throws InterruptedException
+     */
     @Override
     public SendResult send(Message msg) throws MQClientException, RemotingException, MQBrokerException, InterruptedException {
         return null;
@@ -105,6 +117,16 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
 
     }
 
+    /**
+     * 自定义选择queue的算法进行发消息
+     * @param msg
+     * @param mq
+     * @return
+     * @throws MQClientException
+     * @throws RemotingException
+     * @throws MQBrokerException
+     * @throws InterruptedException
+     */
     @Override
     public SendResult send(Message msg, MessageQueue mq) throws MQClientException, RemotingException, MQBrokerException, InterruptedException {
         return null;

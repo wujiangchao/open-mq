@@ -1,9 +1,12 @@
 package com.open.openmq.client.producer;
 
 import com.open.openmq.client.MQAdmin;
+import com.open.openmq.client.exception.MQBrokerException;
 import com.open.openmq.client.exception.MQClientException;
+import com.open.openmq.client.impl.producer.SendCallback;
 import com.open.openmq.common.message.Message;
 import com.open.openmq.common.message.MessageQueue;
+import com.open.openmq.remoting.exception.RemotingException;
 
 import java.util.Collection;
 

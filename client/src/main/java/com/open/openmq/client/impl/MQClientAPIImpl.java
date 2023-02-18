@@ -1,5 +1,7 @@
 package com.open.openmq.client.impl;
 
+import com.open.openmq.client.exception.MQBrokerException;
+import com.open.openmq.client.exception.MQClientException;
 import com.open.openmq.client.hook.SendMessageContext;
 import com.open.openmq.client.impl.factory.MQClientInstance;
 import com.open.openmq.client.impl.producer.DefaultMQProducerImpl;
@@ -8,6 +10,11 @@ import com.open.openmq.client.impl.producer.TopicPublishInfo;
 import com.open.openmq.client.producer.SendResult;
 import com.open.openmq.common.message.Message;
 import com.open.openmq.common.message.MessageConst;
+import com.open.openmq.remoting.exception.RemotingConnectException;
+import com.open.openmq.remoting.exception.RemotingException;
+import com.open.openmq.remoting.exception.RemotingSendRequestException;
+import com.open.openmq.remoting.exception.RemotingTimeoutException;
+import com.open.openmq.remoting.exception.RemotingTooMuchRequestException;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -79,5 +86,41 @@ public class MQClientAPIImpl {
 
         return null;
     }
+
+    public TopicRouteData getDefaultTopicRouteInfoFromNameServer(final String topic, final long timeoutMillis)
+            throws RemotingException, MQClientException, InterruptedException {
+
+        return getTopicRouteInfoFromNameServer(topic, timeoutMillis, false);
+    }
+
+    public TopicRouteData getTopicRouteInfoFromNameServer(final String topic, final long timeoutMillis,
+                                                          boolean allowTopicNotExist) throws MQClientException, InterruptedException, RemotingTimeoutException, RemotingSendRequestException, RemotingConnectException {
+        GetRouteInfoRequestHeader requestHeader = new GetRouteInfoRequestHeader();
+        requestHeader.setTopic(topic);
+        RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.GET_ROUTEINFO_BY_TOPIC, requestHeader);
+
+        RemotingCommand response = this.remotingClient.invokeSync(null, request, timeoutMillis);
+        assert response != null;
+        switch (response.getCode()) {
+            case ResponseCode.TOPIC_NOT_EXIST: {
+                if (allowTopicNotExist) {
+                    log.warn("get Topic [{}] RouteInfoFromNameServer is not exist value", topic);
+                }
+
+                break;
+            }
+            case ResponseCode.SUCCESS: {
+                byte[] body = response.getBody();
+                if (body != null) {
+                    return TopicRouteData.decode(body, TopicRouteData.class);
+                }
+            }
+            default:
+                break;
+        }
+
+        throw new MQClientException(response.getCode(), response.getRemark());
+    }
+
 
 }

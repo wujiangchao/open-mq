@@ -2,10 +2,12 @@ package com.open.openmq.client.impl.factory;
 
 import com.open.openmq.client.ClientConfig;
 import com.open.openmq.client.exception.MQClientException;
+import com.open.openmq.client.impl.MQClientAPIImpl;
 import com.open.openmq.client.impl.producer.MQProducerInner;
 import com.open.openmq.client.impl.producer.TopicPublishInfo;
 import com.open.openmq.client.producer.DefaultMQProducer;
 import com.open.openmq.common.message.MessageQueue;
+import com.open.openmq.remoting.exception.RemotingException;
 
 import java.util.Map;
 import java.util.Set;
@@ -22,6 +24,7 @@ public class MQClientInstance {
     private final ClientConfig clientConfig;
     private final String clientId;
     private final long bootTimestamp = System.currentTimeMillis();
+    private final MQClientAPIImpl mQClientAPIImpl;
 
 
     /**
@@ -140,7 +143,6 @@ public class MQClientInstance {
         } catch (InterruptedException e) {
             log.warn("updateTopicRouteInfoFromNameServer Exception", e);
         }
-
         return false;
     }
 
