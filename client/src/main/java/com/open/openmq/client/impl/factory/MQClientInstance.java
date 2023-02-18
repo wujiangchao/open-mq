@@ -7,6 +7,9 @@ import com.open.openmq.client.impl.producer.MQProducerInner;
 import com.open.openmq.client.impl.producer.TopicPublishInfo;
 import com.open.openmq.client.producer.DefaultMQProducer;
 import com.open.openmq.common.message.MessageQueue;
+import com.open.openmq.common.protocol.route.BrokerData;
+import com.open.openmq.common.protocol.route.QueueData;
+import com.open.openmq.common.protocol.route.TopicRouteData;
 import com.open.openmq.remoting.exception.RemotingException;
 
 import java.util.Map;
