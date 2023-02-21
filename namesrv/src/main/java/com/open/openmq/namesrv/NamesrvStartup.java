@@ -1,11 +1,25 @@
 package com.open.openmq.namesrv;
 
 import com.open.openmq.common.ControllerConfig;
+import com.open.openmq.common.MQVersion;
+import com.open.openmq.common.MixAll;
 import com.open.openmq.common.namesrv.NamesrvConfig;
 import com.open.openmq.remoting.netty.NettyClientConfig;
 import com.open.openmq.remoting.netty.NettyServerConfig;
-import sun.tools.jar.CommandLine;
+import com.open.openmq.remoting.protocol.RemotingCommand;
+import com.open.openmq.srvutil.ServerUtil;
+import org.apache.commons.cli.CommandLine;
+import org.apache.commons.cli.Option;
+import org.apache.commons.cli.Options;
+import org.apache.commons.cli.PosixParser;
+import org.apache.rocketmq.logging.ch.qos.logback.classic.LoggerContext;
+import org.apache.rocketmq.logging.ch.qos.logback.classic.joran.JoranConfigurator;
+import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
 
+import java.io.BufferedInputStream;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.Properties;
 
 /**
@@ -66,6 +80,65 @@ public class NamesrvStartup {
         nettyClientConfig = new NettyClientConfig();
         nettyServerConfig.setListenPort(9876);
         controllerConfig = new ControllerConfig();
+        /**
+         * $ bin/mqnamesrv -h
+         * usage: mqnamesrv [-c <arg>] [-h] [-n <arg>] [-p]
+         *  -c,--configFile <arg>    Name server config properties file
+         *  -h,--help                Print help
+         *  -n,--namesrvAddr <arg>   Name server address list, eg: 192.168.0.1:9876;192.168.0.2:9876
+         *  -p,--printConfigItem     Print all config item
+         *
+         *  主要可以通过-c指定一个配置文件，而该配置文件中可配置的内容可以通过mqnamesrv -p打印出来，
+         *  它是通过日志输出的方式打印出来的
+         */
+        if (commandLine.hasOption('c')) {
+            String file = commandLine.getOptionValue('c');
+            if (file != null) {
+                InputStream in = new BufferedInputStream(Files.newInputStream(Paths.get(file)));
+                properties = new Properties();
+                properties.load(in);
+                MixAll.properties2Object(properties, namesrvConfig);
+                MixAll.properties2Object(properties, nettyServerConfig);
+                MixAll.properties2Object(properties, nettyClientConfig);
+                MixAll.properties2Object(properties, controllerConfig);
+
+                namesrvConfig.setConfigStorePath(file);
+
+                System.out.printf("load config properties file OK, %s%n", file);
+                in.close();
+            }
+        }
+
+        if (commandLine.hasOption('p')) {
+            MixAll.printObjectProperties(null, namesrvConfig);
+            MixAll.printObjectProperties(null, nettyServerConfig);
+            MixAll.printObjectProperties(null, nettyClientConfig);
+            MixAll.printObjectProperties(null, controllerConfig);
+            System.exit(0);
+        }
+
+        //1、commandLine2Properties   2、properties2Object
+        MixAll.properties2Object(ServerUtil.commandLine2Properties(commandLine), namesrvConfig);
+
+        if (null == namesrvConfig.getRocketmqHome()) {
+            System.out.printf("Please set the %s variable in your environment to match the location of the RocketMQ installation%n", MixAll.ROCKETMQ_HOME_ENV);
+            System.exit(-2);
+        }
+
+        /**
+         * 初始化Logback日志工厂
+         * 默认使用Logback作为日志输出
+         */
+        LoggerContext lc = (LoggerContext) LoggerFactory.getILoggerFactory();
+        JoranConfigurator configurator = new JoranConfigurator();
+        configurator.setContext(lc);
+        lc.reset();
+        configurator.doConfigure(namesrvConfig.getRocketmqHome() + "/conf/logback_namesrv.xml");
+
+        log = InternalLoggerFactory.getLogger(LoggerName.NAMESRV_LOGGER_NAME);
+
+        MixAll.printObjectProperties(log, namesrvConfig);
+        MixAll.printObjectProperties(log, nettyServerConfig);
 
 
     }
@@ -79,6 +152,41 @@ public class NamesrvStartup {
             e.printStackTrace();
             System.exit(-1);
         }
+    }
+
+    public static void createAndStartControllerManager() throws Exception {
+        ControllerManager controllerManager = createControllerManager();
+        start(controllerManager);
+        String tip = "The ControllerManager boot success. serializeType=" + RemotingCommand.getSerializeTypeConfigInThisServer();
+        log.info(tip);
+        System.out.printf("%s%n", tip);
+    }
+
+    public static ControllerManager createControllerManager() throws Exception {
+        NettyServerConfig controllerNettyServerConfig = (NettyServerConfig) nettyServerConfig.clone();
+        ControllerManager controllerManager = new ControllerManager(controllerConfig, controllerNettyServerConfig, nettyClientConfig);
+        // remember all configs to prevent discard
+        controllerManager.getConfiguration().registerConfig(properties);
+        return controllerManager;
+    }
+
+    public static void createAndStartNamesrvController() throws Exception {
+        NamesrvController controller = createNamesrvController();
+        start(controller);
+        String tip = "The Name Server boot success. serializeType=" + RemotingCommand.getSerializeTypeConfigInThisServer();
+        log.info(tip);
+        System.out.printf("%s%n", tip);
+    }
+
+    public static Options buildCommandlineOptions(final Options options) {
+        Option opt = new Option("c", "configFile", true, "Name server config properties file");
+        opt.setRequired(false);
+        options.addOption(opt);
+
+        opt = new Option("p", "printConfigItem", false, "Print all config items");
+        opt.setRequired(false);
+        options.addOption(opt);
+        return options;
     }
 
 }
