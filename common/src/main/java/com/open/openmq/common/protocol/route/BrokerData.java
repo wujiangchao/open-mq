@@ -1,5 +1,6 @@
 package com.open.openmq.common.protocol.route;
 
+import com.open.openmq.common.MixAll;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;

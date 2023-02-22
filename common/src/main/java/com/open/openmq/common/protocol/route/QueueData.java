@@ -1,7 +1,5 @@
 package com.open.openmq.common.protocol.route;
 
-import org.jetbrains.annotations.NotNull;
-
 /**
  * @Description TODO
  * @Date 2023/2/18 21:16
@@ -31,7 +29,9 @@ public class QueueData implements Comparable<QueueData>{
 
     }
 
-    // Deep copy QueueData
+    /**
+     *   Deep copy QueueData
+     */
     public QueueData(QueueData queueData) {
         this.brokerName = queueData.brokerName;
         this.readQueueNums = queueData.readQueueNums;

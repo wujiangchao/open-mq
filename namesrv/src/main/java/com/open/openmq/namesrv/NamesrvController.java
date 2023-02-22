@@ -1,6 +1,7 @@
 package com.open.openmq.namesrv;
 
 import com.open.openmq.common.namesrv.NamesrvConfig;
+import com.open.openmq.namesrv.routeinfo.RouteInfoManager;
 import com.open.openmq.remoting.netty.NettyClientConfig;
 import com.open.openmq.remoting.netty.NettyServerConfig;
 
@@ -17,4 +18,9 @@ public class NamesrvController {
 
     private final KVConfigManager kvConfigManager;
     private final RouteInfoManager routeInfoManager;
+
+
+    public RouteInfoManager getRouteInfoManager() {
+        return routeInfoManager;
+    }
 }
