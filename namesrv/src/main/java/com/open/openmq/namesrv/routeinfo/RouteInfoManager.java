@@ -1,9 +1,13 @@
 package com.open.openmq.namesrv.routeinfo;
 
+import com.open.openmq.common.BrokerAddrInfo;
 import com.open.openmq.common.MixAll;
+import com.open.openmq.common.namesrv.NamesrvConfig;
 import com.open.openmq.common.protocol.route.BrokerData;
 import com.open.openmq.common.protocol.route.QueueData;
 import com.open.openmq.common.protocol.route.TopicRouteData;
+import com.open.openmq.namesrv.NamesrvController;
+import io.netty.channel.Channel;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -13,6 +17,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -24,8 +29,54 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class RouteInfoManager {
 
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
+    /**
+     * Topic,以及对应的队列信息
+     */
     private final Map<String/* topic */, Map<String, QueueData>> topicQueueTable;
+    /**
+     * 以Broker Name为单位的Broker集合
+     */
+    private final Map<String/* brokerName */, BrokerData> brokerAddrTable;
+    /**
+     * 集群以及属于该集群的Broker列表
+     */
+    private final Map<String/* clusterName */, Set<String/* brokerName */>> clusterAddrTable;
 
+    /**
+     * 存活的Broker地址列表
+     */
+    private final Map<BrokerAddrInfo/* brokerAddr */, BrokerLiveInfo> brokerLiveTable;
+
+    /**
+     *  Broker对应的Filter Server列表
+     */
+    private final Map<BrokerAddrInfo/* brokerAddr */, List<String>/* Filter Server */> filterServerTable;
+
+    /**
+     * 主题的每个broker的队列映射信息
+     */
+    private final Map<String/* topic */, Map<String/*brokerName*/, TopicQueueMappingInfo>> topicQueueMappingInfoTable;
+
+    /**
+     * 定时批量移除过期Broker服务线程
+     */
+    private final BatchUnregistrationService unRegisterService;
+
+
+    private final NamesrvController namesrvController;
+    private final NamesrvConfig namesrvConfig;
+
+    public RouteInfoManager(final NamesrvConfig namesrvConfig, NamesrvController namesrvController) {
+        this.topicQueueTable = new ConcurrentHashMap<>(1024);
+        this.brokerAddrTable = new ConcurrentHashMap<>(128);
+        this.clusterAddrTable = new ConcurrentHashMap<>(32);
+        this.brokerLiveTable = new ConcurrentHashMap<>(256);
+        this.filterServerTable = new ConcurrentHashMap<>(256);
+        this.topicQueueMappingInfoTable = new ConcurrentHashMap<>(1024);
+        this.unRegisterService = new BatchUnregistrationService(this, namesrvConfig);
+        this.namesrvConfig = namesrvConfig;
+        this.namesrvController = namesrvController;
+    }
 
     public TopicRouteData pickupTopicRouteData(final String topic) {
         TopicRouteData topicRouteData = new TopicRouteData();
@@ -38,6 +89,7 @@ public class RouteInfoManager {
         topicRouteData.setFilterServerTable(filterServerMap);
 
         try {
+            //加读锁
             this.lock.readLock().lockInterruptibly();
             Map<String, QueueData> queueDataMap = this.topicQueueTable.get(topic);
             if (queueDataMap != null) {
@@ -133,5 +185,69 @@ public class RouteInfoManager {
             return topicRouteData;
         }
         return null;
+    }
+
+    class BrokerLiveInfo {
+        private long lastUpdateTimestamp;
+        private long heartbeatTimeoutMillis;
+        private DataVersion dataVersion;
+        private Channel channel;
+        private String haServerAddr;
+
+        public BrokerLiveInfo(long lastUpdateTimestamp, long heartbeatTimeoutMillis, DataVersion dataVersion,
+                              Channel channel,
+                              String haServerAddr) {
+            this.lastUpdateTimestamp = lastUpdateTimestamp;
+            this.heartbeatTimeoutMillis = heartbeatTimeoutMillis;
+            this.dataVersion = dataVersion;
+            this.channel = channel;
+            this.haServerAddr = haServerAddr;
+        }
+
+        public long getLastUpdateTimestamp() {
+            return lastUpdateTimestamp;
+        }
+
+        public void setLastUpdateTimestamp(long lastUpdateTimestamp) {
+            this.lastUpdateTimestamp = lastUpdateTimestamp;
+        }
+
+        public long getHeartbeatTimeoutMillis() {
+            return heartbeatTimeoutMillis;
+        }
+
+        public void setHeartbeatTimeoutMillis(long heartbeatTimeoutMillis) {
+            this.heartbeatTimeoutMillis = heartbeatTimeoutMillis;
+        }
+
+        public DataVersion getDataVersion() {
+            return dataVersion;
+        }
+
+        public void setDataVersion(DataVersion dataVersion) {
+            this.dataVersion = dataVersion;
+        }
+
+        public Channel getChannel() {
+            return channel;
+        }
+
+        public void setChannel(Channel channel) {
+            this.channel = channel;
+        }
+
+        public String getHaServerAddr() {
+            return haServerAddr;
+        }
+
+        public void setHaServerAddr(String haServerAddr) {
+            this.haServerAddr = haServerAddr;
+        }
+
+        @Override
+        public String toString() {
+            return "BrokerLiveInfo [lastUpdateTimestamp=" + lastUpdateTimestamp + ", dataVersion=" + dataVersion
+                    + ", channel=" + channel + ", haServerAddr=" + haServerAddr + "]";
+        }
     }
 }

@@ -30,4 +30,45 @@ public class TopicRouteData {
     private HashMap<String/* brokerAddr */, List<String>/* Filter Server */> filterServerTable;
     //It could be null or empty
     private Map<String/*brokerName*/, TopicQueueMappingInfo> topicQueueMappingByBroker;
+
+
+    public String getOrderTopicConf() {
+        return orderTopicConf;
+    }
+
+    public void setOrderTopicConf(String orderTopicConf) {
+        this.orderTopicConf = orderTopicConf;
+    }
+
+    public List<QueueData> getQueueDatas() {
+        return queueDatas;
+    }
+
+    public void setQueueDatas(List<QueueData> queueDatas) {
+        this.queueDatas = queueDatas;
+    }
+
+    public List<BrokerData> getBrokerDatas() {
+        return brokerDatas;
+    }
+
+    public void setBrokerDatas(List<BrokerData> brokerDatas) {
+        this.brokerDatas = brokerDatas;
+    }
+
+    public HashMap<String, List<String>> getFilterServerTable() {
+        return filterServerTable;
+    }
+
+    public void setFilterServerTable(HashMap<String, List<String>> filterServerTable) {
+        this.filterServerTable = filterServerTable;
+    }
+
+    public Map<String, TopicQueueMappingInfo> getTopicQueueMappingByBroker() {
+        return topicQueueMappingByBroker;
+    }
+
+    public void setTopicQueueMappingByBroker(Map<String, TopicQueueMappingInfo> topicQueueMappingByBroker) {
+        this.topicQueueMappingByBroker = topicQueueMappingByBroker;
+    }
 }
