@@ -1,5 +1,6 @@
 package com.open.openmq.client.producer;
 
+import com.open.openmq.client.impl.producer.SendStatus;
 import com.open.openmq.common.message.MessageQueue;
 
 /**

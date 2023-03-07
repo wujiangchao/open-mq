@@ -16,4 +16,10 @@ public class BatchUnregistrationService extends ServiceThread {
     public void run() {
 
     }
+
+    @Override
+    public String getServiceName() {
+        return BatchUnregistrationService.class.getName();
+    }
+
 }

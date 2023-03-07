@@ -17,6 +17,7 @@ import com.open.openmq.remoting.exception.RemotingException;
 import com.open.openmq.remoting.exception.RemotingSendRequestException;
 import com.open.openmq.remoting.exception.RemotingTimeoutException;
 import com.open.openmq.remoting.exception.RemotingTooMuchRequestException;
+import com.open.openmq.remoting.protocol.RemotingCommand;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
