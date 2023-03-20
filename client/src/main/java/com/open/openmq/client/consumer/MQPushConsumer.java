@@ -1,5 +1,6 @@
 package com.open.openmq.client.consumer;
 
+import com.open.openmq.client.MessageSelector;
 import com.open.openmq.client.exception.MQClientException;
 
 /**
@@ -35,7 +36,7 @@ public interface MQPushConsumer extends MQConsumer{
      * Subscribe some topic with selector.
      * <p>
      * This interface also has the ability of {@link #subscribe(String, String)},
-     * and, support other message selection, such as {@link org.apache.rocketmq.common.filter.ExpressionType#SQL92}.
+     * and, support other message selection, such as {@link com.open.openmq.common.filter.ExpressionType#SQL92}.
      * </p>
      * <p/>
      * <p>

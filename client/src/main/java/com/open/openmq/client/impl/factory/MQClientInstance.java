@@ -3,9 +3,12 @@ package com.open.openmq.client.impl.factory;
 import com.open.openmq.client.ClientConfig;
 import com.open.openmq.client.exception.MQClientException;
 import com.open.openmq.client.impl.MQClientAPIImpl;
+import com.open.openmq.client.impl.consumer.MQConsumerInner;
 import com.open.openmq.client.impl.producer.MQProducerInner;
 import com.open.openmq.client.impl.producer.TopicPublishInfo;
 import com.open.openmq.client.producer.DefaultMQProducer;
+import com.open.openmq.common.MixAll;
+import com.open.openmq.common.ServiceState;
 import com.open.openmq.common.message.MessageQueue;
 import com.open.openmq.common.protocol.route.BrokerData;
 import com.open.openmq.common.protocol.route.QueueData;
@@ -28,6 +31,8 @@ public class MQClientInstance {
     private final String clientId;
     private final long bootTimestamp = System.currentTimeMillis();
     private final MQClientAPIImpl mQClientAPIImpl;
+    private final PullMessageService pullMessageService;
+    private final RebalanceService rebalanceService;
 
 
     /**
@@ -149,4 +154,34 @@ public class MQClientInstance {
         return false;
     }
 
+    public void start() throws MQClientException {
+
+        synchronized (this) {
+            switch (this.serviceState) {
+                case CREATE_JUST:
+                    this.serviceState = ServiceState.START_FAILED;
+                    // If not specified,looking address from name server
+                    if (null == this.clientConfig.getNamesrvAddr()) {
+                        this.mQClientAPIImpl.fetchNameServerAddr();
+                    }
+                    // Start request-response channel
+                    this.mQClientAPIImpl.start();
+                    // Start various schedule tasks
+                    this.startScheduledTask();
+                    // Start pull service
+                    this.pullMessageService.start();
+                    // Start rebalance service
+                    this.rebalanceService.start();
+                    // Start push service
+                    this.defaultMQProducer.getDefaultMQProducerImpl().start(false);
+                    log.info("the client factory [{}] start OK", this.clientId);
+                    this.serviceState = ServiceState.RUNNING;
+                    break;
+                case START_FAILED:
+                    throw new MQClientException("The Factory object[" + this.getClientId() + "] has been created before, and failed.", null);
+                default:
+                    break;
+            }
+        }
+    }
 }
