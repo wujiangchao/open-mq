@@ -5,7 +5,10 @@ import com.open.openmq.client.MessageSelector;
 import com.open.openmq.client.exception.MQBrokerException;
 import com.open.openmq.client.exception.MQClientException;
 import com.open.openmq.client.impl.consumer.DefaultMQPushConsumerImpl;
+import com.open.openmq.common.MixAll;
 import com.open.openmq.common.message.MessageQueue;
+import com.open.openmq.common.protocol.heartbeat.MessageModel;
+import com.open.openmq.remoting.RPCHook;
 import com.open.openmq.remoting.exception.RemotingException;
 
 import java.util.HashMap;
@@ -117,20 +120,175 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
      * 跨度默认2000，超出时延迟50ms再拉取消息
      */
     private int consumeConcurrentlyMaxSpan = 2000;
-    // 消息拉取间隔时间
+    /**
+     * 消息拉取间隔时间
+     */
     private long pullInterval = 0;
-    // 并发消费时一次消费消息条数
+    /**
+     * 并发消费时一次消费消息条数
+     */
     private int consumeMessageBatchMaxSize = 1;
-    // 每次拉取消息所拉取的消息条数，默认32
+    /**
+     * 每次拉取消息所拉取的消息条数，默认32
+     */
     private int pullBatchSize = 32;
-    // 每次拉取消息时是否更新订阅信息，默认false
+    /**
+     * 每次拉取消息时是否更新订阅信息，默认false
+     */
     private boolean postSubscriptionWhenPull = false;
-    // 最大消费重试次数
+    /**
+     * 最大消费重试次数 ,-1代表16次
+     */
     private int maxReconsumeTimes = -1;
-    // 消息延迟到消费线程的时间，默认1s
+    /**
+     * 消息延迟到消费线程的时间，默认1s
+     */
     private long suspendCurrentQueueTimeMillis = 1000;
-    // 消费超时时间，默认15min
+    /**
+     * 消费超时时间，默认15min
+     */
     private long consumeTimeout = 15;
+
+    /**
+     * Default constructor.
+     */
+    public DefaultMQPushConsumer() {
+        this(null, MixAll.DEFAULT_CONSUMER_GROUP, null, new AllocateMessageQueueAveragely());
+    }
+
+    /**
+     * Constructor specifying consumer group.
+     *
+     * @param consumerGroup Consumer group.
+     */
+    public DefaultMQPushConsumer(final String consumerGroup) {
+        this(null, consumerGroup, null, new AllocateMessageQueueAveragely());
+    }
+
+    /**
+     * Constructor specifying namespace and consumer group.
+     *
+     * @param namespace Namespace for this MQ Producer instance.
+     * @param consumerGroup Consumer group.
+     */
+    public DefaultMQPushConsumer(final String namespace, final String consuumerGroup) {
+            this(namespace, consumerGroup, null, new AllocateMessageQeueAveragely());
+    }
+
+
+    /**
+     * Constructor specifying RPC hook.
+     *
+     * @param rpcHook RPC hook to execute before each remoting command.
+     */
+    public DefaultMQPushConsumer(RPCHook rpcHook) {
+        this(null, MixAll.DEFAULT_CONSUMER_GROUP, rpcHook, new AllocateMessageQueueAveragely());
+    }
+
+    /**
+     * Constructor specifying namespace, consumer group and RPC hook .
+     *
+     * @param namespace Namespace for this MQ Producer instance.
+     * @param consumerGroup Consumer group.
+     * @param rpcHook RPC hook to execute before each remoting command.
+     */
+    public DefaultMQPushConsumer(final String namespace, final String consumerGroup, RPCHook rpcHook) {
+        this(namespace, consumerGroup, rpcHook, new AllocateMessageQueueAveragely());
+    }
+
+    /**
+     * Constructor specifying consumer group, RPC hook and message queue allocating algorithm.
+     *
+     * @param consumerGroup Consume queue.
+     * @param rpcHook RPC hook to execute before each remoting command.
+     * @param allocateMessageQueueStrategy Message queue allocating algorithm.
+     */
+    public DefaultMQPushConsumer(final String consumerGroup, RPCHook rpcHook,
+                                 AllocateMessageQueueStrategy allocateMessageQueueStrategy) {
+        this(null, consumerGroup, rpcHook, allocateMessageQueueStrategy);
+    }
+
+    /**
+     * Constructor specifying namespace, consumer group, RPC hook and message queue allocating algorithm.
+     *
+     * @param namespace Namespace for this MQ Producer instance.
+     * @param consumerGroup Consume queue.
+     * @param rpcHook RPC hook to execute before each remoting command.
+     * @param allocateMessageQueueStrategy Message queue allocating algorithm.
+     */
+    public DefaultMQPushConsumer(final String namespace, final String consumerGroup, RPCHook rpcHook,
+                                 AllocateMessageQueueStrategy allocateMessageQueueStrategy) {
+        this.consumerGroup = consumerGroup;
+        this.namespace = namespace;
+        this.allocateMessageQueueStrategy = allocateMessageQueueStrategy;
+        defaultMQPushConsumerImpl = new DefaultMQPushConsumerImpl(this, rpcHook);
+    }
+
+    /**
+     * Constructor specifying consumer group and enabled msg trace flag.
+     *
+     * @param consumerGroup Consumer group.
+     * @param enableMsgTrace Switch flag instance for message trace.
+     */
+    public DefaultMQPushConsumer(final String consumerGroup, boolean enableMsgTrace) {
+        this(null, consumerGroup, null, new AllocateMessageQueueAveragely(), enableMsgTrace, null);
+    }
+
+    /**
+     * Constructor specifying consumer group, enabled msg trace flag and customized trace topic name.
+     *
+     * @param consumerGroup Consumer group.
+     * @param enableMsgTrace Switch flag instance for message trace.
+     * @param customizedTraceTopic The name value of message trace topic.If you don't config,you can use the default trace topic name.
+     */
+    public DefaultMQPushConsumer(final String consumerGroup, boolean enableMsgTrace, final String customizedTraceTopic) {
+        this(null, consumerGroup, null, new AllocateMessageQueueAveragely(), enableMsgTrace, customizedTraceTopic);
+    }
+
+
+    /**
+     * Constructor specifying consumer group, RPC hook, message queue allocating algorithm, enabled msg trace flag and customized trace topic name.
+     *
+     * @param consumerGroup Consume queue.
+     * @param rpcHook RPC hook to execute before each remoting command.
+     * @param allocateMessageQueueStrategy message queue allocating algorithm.
+     * @param enableMsgTrace Switch flag instance for message trace.
+     * @param customizedTraceTopic The name value of message trace topic.If you don't config,you can use the default trace topic name.
+     */
+    public DefaultMQPushConsumer(final String consumerGroup, RPCHook rpcHook,
+                                 AllocateMessageQueueStrategy allocateMessageQueueStrategy, boolean enableMsgTrace, final String customizedTraceTopic) {
+        this(null, consumerGroup, rpcHook, allocateMessageQueueStrategy, enableMsgTrace, customizedTraceTopic);
+    }
+
+    /**
+     * Constructor specifying namespace, consumer group, RPC hook, message queue allocating algorithm, enabled msg trace flag and customized trace topic name.
+     *
+     * @param namespace Namespace for this MQ Producer instance.
+     * @param consumerGroup Consume queue.
+     * @param rpcHook RPC hook to execute before each remoting command.
+     * @param allocateMessageQueueStrategy message queue allocating algorithm.
+     * @param enableMsgTrace Switch flag instance for message trace.
+     * @param customizedTraceTopic The name value of message trace topic.If you don't config,you can use the default trace topic name.
+     */
+    public DefaultMQPushConsumer(final String namespace, final String consumerGroup, RPCHook rpcHook,
+                                 AllocateMessageQueueStrategy allocateMessageQueueStrategy, boolean enableMsgTrace, final String customizedTraceTopic) {
+        this.consumerGroup = consumerGroup;
+        this.namespace = namespace;
+        this.allocateMessageQueueStrategy = allocateMessageQueueStrategy;
+        defaultMQPushConsumerImpl = new DefaultMQPushConsumerImpl(this, rpcHook);
+        if (enableMsgTrace) {
+            try {
+                AsyncTraceDispatcher dispatcher = new AsyncTraceDispatcher(consumerGroup, TraceDispatcher.Type.CONSUME, customizedTraceTopic, rpcHook);
+                dispatcher.setHostConsumer(this.getDefaultMQPushConsumerImpl());
+                traceDispatcher = dispatcher;
+                this.getDefaultMQPushConsumerImpl().registerConsumeMessageHook(
+                        new ConsumeMessageTraceHookImpl(traceDispatcher));
+            } catch (Throwable e) {
+                log.error("system mqtrace hook init failed ,maybe can't send msg trace data");
+            }
+        }
+    }
+
 
     @Override
     public long searchOffset(MessageQueue mq, long timestamp) throws MQClientException {
@@ -218,5 +376,21 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
     @Override
     public void resume() {
 
+    }
+
+    public String getConsumerGroup() {
+        return consumerGroup;
+    }
+
+    public void setConsumerGroup(String consumerGroup) {
+        this.consumerGroup = consumerGroup;
+    }
+
+    public MessageModel getMessageModel() {
+        return messageModel;
+    }
+
+    public void setMessageModel(MessageModel messageModel) {
+        this.messageModel = messageModel;
     }
 }

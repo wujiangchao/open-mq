@@ -1,5 +1,7 @@
 package com.open.openmq.common;
 
+import java.util.concurrent.TimeUnit;
+
 /**
  * @Description TODO
  * @Date 2023/3/3 14:50
@@ -64,5 +66,22 @@ public abstract class ServiceThread implements Runnable{
         return JOIN_TIME;
     }
 
+    protected void waitForRunning(long interval) {
+        if (hasNotified.compareAndSet(true, false)) {
+            this.onWaitEnd();
+            return;
+        }
 
+        //entry to wait
+        waitPoint.reset();
+
+        try {
+            waitPoint.await(interval, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            log.error("Interrupted", e);
+        } finally {
+            hasNotified.set(false);
+            this.onWaitEnd();
+        }
+    }
 }

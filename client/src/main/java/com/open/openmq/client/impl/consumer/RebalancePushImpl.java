@@ -1,6 +1,17 @@
 package com.open.openmq.client.impl.consumer;
 
 import com.open.openmq.client.impl.factory.MQClientInstance;
+import com.open.openmq.common.MixAll;
+import com.open.openmq.common.message.MessageQueue;
+import com.open.openmq.common.protocol.heartbeat.MessageModel;
+import com.open.openmq.common.protocol.heartbeat.SubscriptionData;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * @Description TODO

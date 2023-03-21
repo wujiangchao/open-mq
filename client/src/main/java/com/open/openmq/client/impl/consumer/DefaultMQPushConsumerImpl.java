@@ -1,9 +1,14 @@
 package com.open.openmq.client.impl.consumer;
 
 import com.open.openmq.client.MessageSelector;
+import com.open.openmq.client.consumer.DefaultMQPushConsumer;
 import com.open.openmq.client.exception.MQClientException;
+import com.open.openmq.client.impl.factory.MQClientInstance;
 import com.open.openmq.common.ServiceState;
+import com.open.openmq.common.protocol.heartbeat.ConsumeType;
+import com.open.openmq.common.protocol.heartbeat.MessageModel;
 import com.open.openmq.common.protocol.heartbeat.SubscriptionData;
+import com.open.openmq.remoting.RPCHook;
 
 /**
  * @Description TODO
@@ -14,8 +19,27 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
 
     private volatile ServiceState serviceState = ServiceState.CREATE_JUST;
 
+    private MQClientInstance mQClientFactory;
+
+    private PullAPIWrapper pullAPIWrapper;
+
+
     private final RebalanceImpl rebalanceImpl = new RebalancePushImpl(this);
 
+    private final DefaultMQPushConsumer defaultMQPushConsumer;
+
+    private ConsumeMessageService consumeMessageService;
+
+    private ConsumeMessageService consumeMessagePopService;
+
+    private final RPCHook rpcHook;
+
+
+    public DefaultMQPushConsumerImpl(DefaultMQPushConsumer defaultMQPushConsumer, RPCHook rpcHook) {
+        this.defaultMQPushConsumer = defaultMQPushConsumer;
+        this.rpcHook = rpcHook;
+        this.pullTimeDelayMillsWhenException = defaultMQPushConsumer.getPullTimeDelayMillsWhenException();
+    }
 
     @Override
     public String groupName() {
@@ -109,6 +133,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                 // POPTODO
                 this.consumeMessagePopService.start();
 
+                //注册到消费者实例到客户端
                 boolean registerOK = mQClientFactory.registerConsumer(this.defaultMQPushConsumer.getConsumerGroup(), this);
                 if (!registerOK) {
                     this.serviceState = ServiceState.CREATE_JUST;
@@ -118,6 +143,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                             null);
                 }
 
+                //启动客户端
                 mQClientFactory.start();
                 log.info("the consumer [{}] start OK.", this.defaultMQPushConsumer.getConsumerGroup());
                 this.serviceState = ServiceState.RUNNING;
@@ -133,9 +159,13 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                 break;
         }
 
+        //更新订阅信息
         this.updateTopicSubscribeInfoWhenSubscriptionChanged();
+        //检测broker状态
         this.mQClientFactory.checkClientInBroker();
+        //发送心跳包
         this.mQClientFactory.sendHeartbeatToAllBrokerWithLock();
+        //重新负载
         this.mQClientFactory.rebalanceImmediately();
     }
 
@@ -170,5 +200,16 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
         } catch (Exception e) {
             throw new MQClientException("subscription exception", e);
         }
+    }
+
+    @Override
+    public void doRebalance() {
+        if (!this.pause) {
+            this.rebalanceImpl.doRebalance(this.isConsumeOrderly());
+        }
+    }
+
+    public RebalanceImpl getRebalanceImpl() {
+        return rebalanceImpl;
     }
 }

@@ -3,7 +3,7 @@ package com.open.openmq.common.message;
 import java.io.Serializable;
 
 /**
- * @Description TODO
+ * @Description 消息队列实体
  * @Date 2023/2/14 14:37
  * @Author jack wu
  */

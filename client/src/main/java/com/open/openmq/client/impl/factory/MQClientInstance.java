@@ -4,6 +4,8 @@ import com.open.openmq.client.ClientConfig;
 import com.open.openmq.client.exception.MQClientException;
 import com.open.openmq.client.impl.MQClientAPIImpl;
 import com.open.openmq.client.impl.consumer.MQConsumerInner;
+import com.open.openmq.client.impl.consumer.PullMessageService;
+import com.open.openmq.client.impl.consumer.RebalanceService;
 import com.open.openmq.client.impl.producer.MQProducerInner;
 import com.open.openmq.client.impl.producer.TopicPublishInfo;
 import com.open.openmq.client.producer.DefaultMQProducer;
@@ -33,7 +35,8 @@ public class MQClientInstance {
     private final MQClientAPIImpl mQClientAPIImpl;
     private final PullMessageService pullMessageService;
     private final RebalanceService rebalanceService;
-
+    private ServiceState serviceState = ServiceState.CREATE_JUST;
+    private final DefaultMQProducer defaultMQProducer;
 
     /**
      * The container of the producer in the current client. The key is the name of producerGroup.
@@ -184,4 +187,35 @@ public class MQClientInstance {
             }
         }
     }
+
+    /**
+     * 遍历已经注册的消费者并对消费者执行doRebalance()方法
+     */
+    public void doRebalance() {
+        for (Map.Entry<String, MQConsumerInner> entry : this.consumerTable.entrySet()) {
+            MQConsumerInner impl = entry.getValue();
+            if (impl != null) {
+                try {
+                    impl.doRebalance();
+                } catch (Throwable e) {
+                    log.error("doRebalance exception", e);
+                }
+            }
+        }
+    }
+
+    public synchronized boolean registerConsumer(final String group, final MQConsumerInner consumer) {
+        if (null == group || null == consumer) {
+            return false;
+        }
+
+        MQConsumerInner prev = this.consumerTable.putIfAbsent(group, consumer);
+        if (prev != null) {
+            log.warn("the consumer group[" + group + "] exist already.");
+            return false;
+        }
+
+        return true;
+    }
+
 }
