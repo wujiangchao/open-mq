@@ -11,6 +11,7 @@ import com.open.openmq.client.producer.SendResult;
 import com.open.openmq.common.MixAll;
 import com.open.openmq.common.message.Message;
 import com.open.openmq.common.message.MessageConst;
+import com.open.openmq.common.protocol.RequestCode;
 import com.open.openmq.common.protocol.route.TopicRouteData;
 import com.open.openmq.remoting.exception.RemotingConnectException;
 import com.open.openmq.remoting.exception.RemotingException;
@@ -22,11 +23,17 @@ import com.open.openmq.remoting.protocol.RemotingCommand;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * @Description TODO
+ * @Description 提供了发送消息的 API，它调用 RemotingClient 执行发送
  * @Date 2023/2/15 22:06
  * @Author jack wu
  */
 public class MQClientAPIImpl {
+
+    private final RemotingClient remotingClient;
+
+    public void start() {
+        this.remotingClient.start();
+    }
 
     public SendResult sendMessage(
             final String addr,

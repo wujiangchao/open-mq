@@ -6,7 +6,9 @@ import com.open.openmq.client.exception.MQClientException;
 import com.open.openmq.client.impl.producer.DefaultMQProducerImpl;
 import com.open.openmq.client.impl.producer.SendCallback;
 import com.open.openmq.common.message.Message;
+import com.open.openmq.common.message.MessageExt;
 import com.open.openmq.common.message.MessageQueue;
+import com.open.openmq.remoting.RPCHook;
 import com.open.openmq.remoting.exception.RemotingException;
 
 import java.util.Collection;
@@ -75,7 +77,15 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
 
     @Override
     public void start() throws MQClientException {
-
+        this.setProducerGroup(withNamespace(this.producerGroup));
+        this.defaultMQProducerImpl.start();
+        if (null != traceDispatcher) {
+            try {
+                traceDispatcher.start(this.getNamesrvAddr(), this.getAccessChannel());
+            } catch (MQClientException e) {
+                log.warn("trace dispatcher start failed ", e);
+            }
+        }
     }
 
     @Override
@@ -255,5 +265,9 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
     @Override
     public void request(Message msg, MessageQueue mq, RequestCallback requestCallback, long timeout) throws MQClientException, RemotingException, MQBrokerException, InterruptedException {
 
+    }
+
+    public DefaultMQProducerImpl getDefaultMQProducerImpl() {
+        return defaultMQProducerImpl;
     }
 }

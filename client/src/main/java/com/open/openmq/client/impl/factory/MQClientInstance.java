@@ -6,6 +6,7 @@ import com.open.openmq.client.impl.MQClientAPIImpl;
 import com.open.openmq.client.impl.consumer.MQConsumerInner;
 import com.open.openmq.client.impl.consumer.PullMessageService;
 import com.open.openmq.client.impl.consumer.RebalanceService;
+import com.open.openmq.client.impl.producer.DefaultMQProducerImpl;
 import com.open.openmq.client.impl.producer.MQProducerInner;
 import com.open.openmq.client.impl.producer.TopicPublishInfo;
 import com.open.openmq.client.producer.DefaultMQProducer;
@@ -21,10 +22,13 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
- * @Description TODO
+ * @Description MQClientInstance 是与 NameServer 和 Broker 通信的中介。
+ * MQClientInstance 与 ClientId 一一对应
  * @Date 2023/2/14 14:13
  * @Author jack wu
  */
@@ -37,6 +41,9 @@ public class MQClientInstance {
     private final RebalanceService rebalanceService;
     private ServiceState serviceState = ServiceState.CREATE_JUST;
     private final DefaultMQProducer defaultMQProducer;
+
+    private final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor(r -> new Thread(r, "MQClientFactoryScheduledThread"));
+
 
     /**
      * The container of the producer in the current client. The key is the name of producerGroup.
@@ -158,7 +165,6 @@ public class MQClientInstance {
     }
 
     public void start() throws MQClientException {
-
         synchronized (this) {
             switch (this.serviceState) {
                 case CREATE_JUST:
@@ -175,7 +181,7 @@ public class MQClientInstance {
                     this.pullMessageService.start();
                     // Start rebalance service
                     this.rebalanceService.start();
-                    // Start push service
+                    // Start push service  (当消费失败的时候，需要把消息发回去)
                     this.defaultMQProducer.getDefaultMQProducerImpl().start(false);
                     log.info("the client factory [{}] start OK", this.clientId);
                     this.serviceState = ServiceState.RUNNING;
@@ -214,8 +220,84 @@ public class MQClientInstance {
             log.warn("the consumer group[" + group + "] exist already.");
             return false;
         }
+        return true;
+    }
+
+    public synchronized boolean registerProducer(final String group, final DefaultMQProducerImpl producer) {
+        if (null == group || null == producer) {
+            return false;
+        }
+
+        MQProducerInner prev = this.producerTable.putIfAbsent(group, producer);
+        if (prev != null) {
+            log.warn("the producer group[{}] exist already.", group);
+            return false;
+        }
 
         return true;
     }
 
+    private void startScheduledTask() {
+        if (null == this.clientConfig.getNamesrvAddr()) {
+            this.scheduledExecutorService.scheduleAtFixedRate(() -> {
+                try {
+                    MQClientInstance.this.mQClientAPIImpl.fetchNameServerAddr();
+                } catch (Exception e) {
+                    log.error("ScheduledTask fetchNameServerAddr exception", e);
+                }
+            }, 1000 * 10, 1000 * 60 * 2, TimeUnit.MILLISECONDS);
+        }
+
+        /**
+         * 默认每30s从nameserver获取Topic路由信息
+         * 包括 生产者和消费者
+         */
+        this.scheduledExecutorService.scheduleAtFixedRate(() -> {
+            try {
+                MQClientInstance.this.updateTopicRouteInfoFromNameServer();
+            } catch (Exception e) {
+                log.error("ScheduledTask updateTopicRouteInfoFromNameServer exception", e);
+            }
+        }, 10, this.clientConfig.getPollNameServerInterval(), TimeUnit.MILLISECONDS);
+
+        /**
+         * 每30s向Broker端发送心跳
+         * 1. 清除离线的Broker
+         * 2. 汇报心跳给broker
+         */
+        this.scheduledExecutorService.scheduleAtFixedRate(() -> {
+            try {
+                MQClientInstance.this.cleanOfflineBroker();
+                MQClientInstance.this.sendHeartbeatToAllBrokerWithLock();
+            } catch (Exception e) {
+                log.error("ScheduledTask sendHeartbeatToAllBroker exception", e);
+            }
+        }, 1000, this.clientConfig.getHeartbeatBrokerInterval(), TimeUnit.MILLISECONDS);
+
+        /**
+         * 每5s把消费者的offset持久化
+         */
+        this.scheduledExecutorService.scheduleAtFixedRate(() -> {
+            try {
+                MQClientInstance.this.persistAllConsumerOffset();
+            } catch (Exception e) {
+                log.error("ScheduledTask persistAllConsumerOffset exception", e);
+            }
+        }, 1000 * 10, this.clientConfig.getPersistConsumerOffsetInterval(), TimeUnit.MILLISECONDS);
+
+        /**
+         * 每60s调整线程池
+         */
+        this.scheduledExecutorService.scheduleAtFixedRate(() -> {
+            try {
+                MQClientInstance.this.adjustThreadPool();
+            } catch (Exception e) {
+                log.error("ScheduledTask adjustThreadPool exception", e);
+            }
+        }, 1, 1, TimeUnit.MINUTES);
+    }
+
+    public MQClientAPIImpl getMQClientAPIImpl() {
+        return mQClientAPIImpl;
+    }
 }

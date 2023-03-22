@@ -11,5 +11,67 @@
 
     <artifactId>openmq-broker</artifactId>
 
+    <properties>
+        <project.root>${basedir}/..</project.root>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>openmq-common</artifactId>
+        </dependency>
+<!--        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>openmq-store</artifactId>
+        </dependency>-->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>openmq-remoting</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>openmq-client</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>openmq-srvutil</artifactId>
+        </dependency>
+<!--        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>rocketmq-filter</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>rocketmq-acl</artifactId>
+        </dependency>-->
+        <dependency>
+            <groupId>commons-io</groupId>
+            <artifactId>commons-io</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.alibaba</groupId>
+            <artifactId>fastjson</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.javassist</groupId>
+            <artifactId>javassist</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcpkix-jdk15on</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.googlecode.concurrentlinkedhashmap</groupId>
+            <artifactId>concurrentlinkedhashmap-lru</artifactId>
+        </dependency>
+    </dependencies>
 
 </project>

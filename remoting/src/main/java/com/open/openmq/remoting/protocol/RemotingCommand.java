@@ -8,4 +8,14 @@ package com.open.openmq.remoting.protocol;
 public class RemotingCommand {
     public static final String REMOTING_VERSION_KEY = "openmq.remoting.version";
 
+    private int code;
+
+
+    public int getCode() {
+        return code;
+    }
+
+    public void setCode(int code) {
+        this.code = code;
+    }
 }

@@ -10,6 +10,7 @@ import com.open.openmq.client.impl.factory.MQClientInstance;
 import com.open.openmq.client.latency.MQFaultStrategy;
 import com.open.openmq.client.producer.DefaultMQProducer;
 import com.open.openmq.client.producer.SendResult;
+import com.open.openmq.common.MixAll;
 import com.open.openmq.common.ServiceState;
 import com.open.openmq.common.message.Message;
 import com.open.openmq.common.message.MessageConst;
@@ -25,13 +26,14 @@ import java.util.List;
 import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.TimeUnit;
 
 /**
  * @Description TODO
  * @Date 2023/2/8 22:03
  * @Author jack wu
  */
-public class DefaultMQProducerImpl {
+public class DefaultMQProducerImpl implements MQProducerInner{
     private ServiceState serviceState = ServiceState.CREATE_JUST;
     private final Random random = new Random();
     private final ConcurrentMap<String/* topic */, TopicPublishInfo> topicPublishInfoTable =
@@ -488,6 +490,58 @@ public class DefaultMQProducerImpl {
         }
 
         throw new MQClientException("The broker[" + brokerName + "] not exist", null);
+    }
+
+    public void start() throws MQClientException {
+        this.start(true);
+    }
+
+    public void start(final boolean startFactory) throws MQClientException {
+        switch (this.serviceState) {
+            case CREATE_JUST:
+                this.serviceState = ServiceState.START_FAILED;
+
+                this.checkConfig();
+
+                if (!this.defaultMQProducer.getProducerGroup().equals(MixAll.CLIENT_INNER_PRODUCER_GROUP)) {
+                    this.defaultMQProducer.changeInstanceNameToPID();
+                }
+
+                this.mQClientFactory = MQClientManager.getInstance().getOrCreateMQClientInstance(this.defaultMQProducer, rpcHook);
+
+                boolean registerOK = mQClientFactory.registerProducer(this.defaultMQProducer.getProducerGroup(), this);
+                if (!registerOK) {
+                    this.serviceState = ServiceState.CREATE_JUST;
+                    throw new MQClientException("The producer group[" + this.defaultMQProducer.getProducerGroup()
+                            + "] has been created before, specify another name please." + FAQUrl.suggestTodo(FAQUrl.GROUP_NAME_DUPLICATE_URL),
+                            null);
+                }
+
+                this.topicPublishInfoTable.put(this.defaultMQProducer.getCreateTopicKey(), new TopicPublishInfo());
+
+                if (startFactory) {
+                    mQClientFactory.start();
+                }
+
+                log.info("the producer [{}] start OK. sendMessageWithVIPChannel={}", this.defaultMQProducer.getProducerGroup(),
+                        this.defaultMQProducer.isSendMessageWithVIPChannel());
+                this.serviceState = ServiceState.RUNNING;
+                break;
+            case RUNNING:
+            case START_FAILED:
+            case SHUTDOWN_ALREADY:
+                throw new MQClientException("The producer service state not OK, maybe started once, "
+                        + this.serviceState
+                        + FAQUrl.suggestTodo(FAQUrl.CLIENT_SERVICE_NOT_OK),
+                        null);
+            default:
+                break;
+        }
+
+        // 启动后马上向 NameServer 发送心跳
+        this.mQClientFactory.sendHeartbeatToAllBrokerWithLock();
+
+        RequestFutureHolder.getInstance().startScheduledTask(this);
     }
 
 }
