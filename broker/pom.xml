@@ -20,10 +20,10 @@
             <groupId>${project.groupId}</groupId>
             <artifactId>openmq-common</artifactId>
         </dependency>
-<!--        <dependency>
+        <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>openmq-store</artifactId>
-        </dependency>-->
+        </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>openmq-remoting</artifactId>

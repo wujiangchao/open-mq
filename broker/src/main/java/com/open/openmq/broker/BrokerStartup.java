@@ -1,8 +1,22 @@
 package com.open.openmq.broker;
 
+import ch.qos.logback.classic.LoggerContext;
+import ch.qos.logback.classic.joran.JoranConfigurator;
+import com.open.openmq.common.BrokerConfig;
+import com.open.openmq.common.MQVersion;
+import com.open.openmq.common.MixAll;
+import com.open.openmq.remoting.netty.NettyClientConfig;
+import com.open.openmq.remoting.netty.NettyServerConfig;
+import com.open.openmq.remoting.protocol.RemotingCommand;
+import com.open.openmq.srvutil.ServerUtil;
+import com.open.openmq.store.config.MessageStoreConfig;
+import org.apache.commons.cli.DefaultParser;
+import org.apache.commons.cli.Options;
+import org.slf4j.LoggerFactory;
 import sun.tools.jar.CommandLine;
 
 import java.util.Properties;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * @Description TODO
@@ -15,4 +29,205 @@ public class BrokerStartup {
     public static String configFile = null;
     public static InternalLogger log;
     public static final SystemConfigFileHelper CONFIG_FILE_HELPER = new SystemConfigFileHelper();
+
+    public static void main(String[] args) {
+        start(createBrokerController(args));
+    }
+
+    public static BrokerController start(BrokerController controller) {
+        try {
+
+            controller.start();
+
+            String tip = "The broker[" + controller.getBrokerConfig().getBrokerName() + ", "
+                    + controller.getBrokerAddr() + "] boot success. serializeType=" + RemotingCommand.getSerializeTypeConfigInThisServer();
+
+            if (null != controller.getBrokerConfig().getNamesrvAddr()) {
+                tip += " and name server is " + controller.getBrokerConfig().getNamesrvAddr();
+            }
+
+            log.info(tip);
+            System.out.printf("%s%n", tip);
+            return controller;
+        } catch (Throwable e) {
+            e.printStackTrace();
+            System.exit(-1);
+        }
+        return null;
+    }
+
+    public static BrokerController createBrokerController(String[] args) {
+        System.setProperty(RemotingCommand.REMOTING_VERSION_KEY, Integer.toString(MQVersion.CURRENT_VERSION));
+
+        try {
+            //PackageConflictDetect.detectFastjson();
+            Options options = ServerUtil.buildCommandlineOptions(new Options());
+            commandLine = ServerUtil.parseCmdLine("mqbroker", args, buildCommandlineOptions(options),
+                    new DefaultParser());
+            if (null == commandLine) {
+                System.exit(-1);
+            }
+
+            final BrokerConfig brokerConfig = new BrokerConfig();
+            final NettyServerConfig nettyServerConfig = new NettyServerConfig();
+            final NettyClientConfig nettyClientConfig = new NettyClientConfig();
+
+            nettyClientConfig.setUseTLS(Boolean.parseBoolean(System.getProperty(TLS_ENABLE,
+                    String.valueOf(TlsSystemConfig.tlsMode == TlsMode.ENFORCING))));
+            nettyServerConfig.setListenPort(10911);
+
+            //消息存储的配置
+            final MessageStoreConfig messageStoreConfig = new MessageStoreConfig();
+
+            if (BrokerRole.SLAVE == messageStoreConfig.getBrokerRole()) {
+                int ratio = messageStoreConfig.getAccessMessageInMemoryMaxRatio() - 10;
+                messageStoreConfig.setAccessMessageInMemoryMaxRatio(ratio);
+            }
+
+            if (commandLine.hasOption('c')) {
+                String file = commandLine.getOptionValue('c');
+                if (file != null) {
+                    CONFIG_FILE_HELPER.setFile(file);
+                    configFile = file;
+                    BrokerPathConfigHelper.setBrokerConfigPath(file);
+                    properties = CONFIG_FILE_HELPER.loadConfig();
+                }
+            }
+
+            if (properties != null) {
+                properties2SystemEnv(properties);
+                MixAll.properties2Object(properties, brokerConfig);
+                MixAll.properties2Object(properties, nettyServerConfig);
+                MixAll.properties2Object(properties, nettyClientConfig);
+                MixAll.properties2Object(properties, messageStoreConfig);
+            }
+
+            MixAll.properties2Object(ServerUtil.commandLine2Properties(commandLine), brokerConfig);
+
+            if (null == brokerConfig.getRocketmqHome()) {
+                System.out.printf("Please set the %s variable in your environment to match the location of the RocketMQ installation", MixAll.ROCKETMQ_HOME_ENV);
+                System.exit(-2);
+            }
+
+            String namesrvAddr = brokerConfig.getNamesrvAddr();
+            if (null != namesrvAddr) {
+                try {
+                    String[] addrArray = namesrvAddr.split(";");
+                    for (String addr : addrArray) {
+                        RemotingUtil.string2SocketAddress(addr);
+                    }
+                } catch (Exception e) {
+                    System.out.printf(
+                            "The Name Server Address[%s] illegal, please set it as follows, \"127.0.0.1:9876;192.168.0.1:9876\"%n",
+                            namesrvAddr);
+                    System.exit(-3);
+                }
+            }
+
+            //主从节点的brokeid设置及校验
+            if (!brokerConfig.isEnableControllerMode()) {
+                switch (messageStoreConfig.getBrokerRole()) {
+                    case ASYNC_MASTER:
+                    case SYNC_MASTER:
+                        brokerConfig.setBrokerId(MixAll.MASTER_ID);
+                        break;
+                    case SLAVE:
+                        if (brokerConfig.getBrokerId() <= 0) {
+                            System.out.printf("Slave's brokerId must be > 0");
+                            System.exit(-3);
+                        }
+
+                        break;
+                    default:
+                        break;
+                }
+            }
+
+            if (messageStoreConfig.isEnableDLegerCommitLog()) {
+                //不采用主从的配置，采用多副本Raft协议支持的集群模式
+                brokerConfig.setBrokerId(-1);
+            }
+
+            //HA主从同步监听端口
+            messageStoreConfig.setHaListenPort(nettyServerConfig.getListenPort() + 1);
+            LoggerContext lc = (LoggerContext) LoggerFactory.getILoggerFactory();
+            JoranConfigurator configurator = new JoranConfigurator();
+            configurator.setContext(lc);
+            lc.reset();
+            //日志存储路径设置
+            System.setProperty("brokerLogDir", "");
+            //单台机器多broker配置目录区分
+            if (brokerConfig.isIsolateLogEnable()) {
+                System.setProperty("brokerLogDir", brokerConfig.getBrokerName() + "_" + brokerConfig.getBrokerId());
+            }
+            if (brokerConfig.isIsolateLogEnable() && messageStoreConfig.isEnableDLegerCommitLog()) {
+                System.setProperty("brokerLogDir", brokerConfig.getBrokerName() + "_" + messageStoreConfig.getdLegerSelfId());
+            }
+            configurator.doConfigure(brokerConfig.getRocketmqHome() + "/conf/logback_broker.xml");
+
+            if (commandLine.hasOption('p')) {
+                InternalLogger console = InternalLoggerFactory.getLogger(LoggerName.BROKER_CONSOLE_NAME);
+                MixAll.printObjectProperties(console, brokerConfig);
+                MixAll.printObjectProperties(console, nettyServerConfig);
+                MixAll.printObjectProperties(console, nettyClientConfig);
+                MixAll.printObjectProperties(console, messageStoreConfig);
+                System.exit(0);
+            } else if (commandLine.hasOption('m')) {
+                InternalLogger console = InternalLoggerFactory.getLogger(LoggerName.BROKER_CONSOLE_NAME);
+                MixAll.printObjectProperties(console, brokerConfig, true);
+                MixAll.printObjectProperties(console, nettyServerConfig, true);
+                MixAll.printObjectProperties(console, nettyClientConfig, true);
+                MixAll.printObjectProperties(console, messageStoreConfig, true);
+                System.exit(0);
+            }
+
+            log = InternalLoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
+            MixAll.printObjectProperties(log, brokerConfig);
+            MixAll.printObjectProperties(log, nettyServerConfig);
+            MixAll.printObjectProperties(log, nettyClientConfig);
+            MixAll.printObjectProperties(log, messageStoreConfig);
+
+            brokerConfig.setInBrokerContainer(false);
+
+            final BrokerController controller = new BrokerController(
+                    brokerConfig,
+                    nettyServerConfig,
+                    nettyClientConfig,
+                    messageStoreConfig);
+            // remember all configs to prevent discard
+            controller.getConfiguration().registerConfig(properties);
+
+            boolean initResult = controller.initialize();
+            if (!initResult) {
+                controller.shutdown();
+                System.exit(-3);
+            }
+
+            //JVM退出时 释放应用资源
+            Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
+                private volatile boolean hasShutdown = false;
+                private AtomicInteger shutdownTimes = new AtomicInteger(0);
+
+                @Override
+                public void run() {
+                    synchronized (this) {
+                        log.info("Shutdown hook was invoked, {}", this.shutdownTimes.incrementAndGet());
+                        if (!this.hasShutdown) {
+                            this.hasShutdown = true;
+                            long beginTime = System.currentTimeMillis();
+                            controller.shutdown();
+                            long consumingTimeTotal = System.currentTimeMillis() - beginTime;
+                            log.info("Shutdown hook over, consuming total time(ms): {}", consumingTimeTotal);
+                        }
+                    }
+                }
+            }, "ShutdownHook"));
+
+            return controller;
+        } catch (Throwable e) {
+            e.printStackTrace();
+            System.exit(-1);
+        }
+        return null;
+    }
 }
