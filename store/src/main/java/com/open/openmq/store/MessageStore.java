@@ -41,4 +41,36 @@ public interface MessageStore {
      */
     PutMessageResult putMessage(final MessageExtBrokerInner msg);
 
+
+    /**
+     * Query at most <code>maxMsgNums</code> messages belonging to <code>topic</code> at <code>queueId</code> starting
+     * from given <code>offset</code>. Resulting messages will further be screened using provided message filter.
+     *
+     * @param group Consumer group that launches this query.
+     * @param topic Topic to query.
+     * @param queueId Queue ID to query.
+     * @param offset Logical offset to start from.
+     * @param maxMsgNums Maximum count of messages to query.
+     * @param messageFilter Message filter used to screen desired messages.
+     * @return Matched messages.
+     */
+    GetMessageResult getMessage(final String group, final String topic, final int queueId,
+                                final long offset, final int maxMsgNums, final MessageFilter messageFilter);
+
+    /**
+     * Query at most <code>maxMsgNums</code> messages belonging to <code>topic</code> at <code>queueId</code> starting
+     * from given <code>offset</code>. Resulting messages will further be screened using provided message filter.
+     *
+     * @param group Consumer group that launches this query.
+     * @param topic Topic to query.
+     * @param queueId Queue ID to query.
+     * @param offset Logical offset to start from.
+     * @param maxMsgNums Maximum count of messages to query.
+     * @param maxTotalMsgSize Maxisum total msg size of the messages
+     * @param messageFilter Message filter used to screen desired messages.
+     * @return Matched messages.
+     */
+    GetMessageResult getMessage(final String group, final String topic, final int queueId,
+                                final long offset, final int maxMsgNums, final int maxTotalMsgSize, final MessageFilter messageFilter);
+
 }

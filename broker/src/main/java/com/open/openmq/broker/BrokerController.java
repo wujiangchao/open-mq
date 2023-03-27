@@ -1,25 +1,37 @@
 package com.open.openmq.broker;
 
+import com.open.openmq.broker.latency.BrokerFixedThreadPoolExecutor;
+import com.open.openmq.broker.processor.PullMessageProcessor;
 import com.open.openmq.broker.processor.SendMessageProcessor;
 import com.open.openmq.broker.slave.SlaveSynchronize;
 import com.open.openmq.common.BrokerConfig;
 import com.open.openmq.common.MixAll;
+import com.open.openmq.common.ThreadFactoryImpl;
 import com.open.openmq.common.protocol.RequestCode;
+import com.open.openmq.remoting.RemotingServer;
 import com.open.openmq.remoting.netty.NettyClientConfig;
 import com.open.openmq.remoting.netty.NettyRequestProcessor;
 import com.open.openmq.remoting.netty.NettyServerConfig;
+import com.open.openmq.store.DefaultMessageStore;
 import com.open.openmq.store.MessageStore;
 import com.open.openmq.store.config.MessageStoreConfig;
+import com.open.openmq.store.stas.BrokerStats;
 import org.apache.commons.io.FilenameUtils;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * @Description Broker核心控制
@@ -148,6 +160,36 @@ public class BrokerController {
 
     protected RemotingServer remotingServer;
     protected RemotingServer fastRemotingServer;
+
+    protected boolean updateMasterHAServerAddrPeriodically = false;
+    private BrokerStats brokerStats;
+    private InetSocketAddress storeHost;
+    private TimerMessageStore timerMessageStore;
+    private TimerCheckpoint timerCheckpoint;
+    protected BrokerFastFailure brokerFastFailure;
+    private Configuration configuration;
+    protected TopicQueueMappingCleanService topicQueueMappingCleanService;
+    protected FileWatchService fileWatchService;
+    protected TransactionalMessageCheckService transactionalMessageCheckService;
+    protected TransactionalMessageService transactionalMessageService;
+    protected AbstractTransactionalMessageCheckListener transactionalMessageCheckListener;
+    protected Map<Class, AccessValidator> accessValidatorMap = new HashMap<Class, AccessValidator>();
+    protected volatile boolean shutdown = false;
+    protected ShutdownHook shutdownHook;
+    private volatile boolean isScheduleServiceStart = false;
+    private volatile boolean isTransactionCheckServiceStart = false;
+    protected volatile BrokerMemberGroup brokerMemberGroup;
+    protected EscapeBridge escapeBridge;
+    protected List<BrokerAttachedPlugin> brokerAttachedPlugins = new ArrayList<>();
+    protected volatile long shouldStartTime;
+    private BrokerPreOnlineService brokerPreOnlineService;
+    protected volatile boolean isIsolated = false;
+    protected volatile long minBrokerIdInGroup = 0;
+    protected volatile String minBrokerAddrInGroup = null;
+    private final Lock lock = new ReentrantLock();
+    protected final List<ScheduledFuture<?>> scheduledFutures = new ArrayList<>();
+    protected ReplicasManager replicasManager;
+    private long lastSyncTimeMs = System.currentTimeMillis();
 
 
     public BrokerController(
@@ -885,5 +927,13 @@ public class BrokerController {
 
     public MessageStore getMessageStore() {
         return messageStore;
+    }
+
+    public BrokerConfig getBrokerConfig() {
+        return brokerConfig;
+    }
+
+    public MessageStoreConfig getMessageStoreConfig() {
+        return messageStoreConfig;
     }
 }

@@ -198,6 +198,9 @@ public class RequestCode {
     public static final int GET_SUBSCRIPTIONGROUP_CONFIG = 352;
     public static final int UPDATE_AND_GET_GROUP_FORBIDDEN = 353;
 
+    /**
+     * 简单拉取
+     */
     public static final int LITE_PULL_MESSAGE = 361;
 
     public static final int QUERY_ASSIGNMENT = 400;
