@@ -1,16 +1,35 @@
 package com.open.openmq.store;
 
+import com.open.openmq.common.TopicConfig;
+import com.open.openmq.common.message.MessageConst;
 import com.open.openmq.common.message.MessageExtBrokerInner;
+import com.open.openmq.store.config.MessageStoreConfig;
+import com.open.openmq.store.hook.PutMessageHook;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * @Description TODO
  * @Date 2023/3/24 11:19
  * @Author jack wu
  */
-public class DefaultMessageStore implements MessageStore{
+public class DefaultMessageStore implements MessageStore {
 
     // Max pull msg size
     private final static int MAX_PULL_MSG_SIZE = 128 * 1024 * 1024;
+
+    private final MessageStoreConfig messageStoreConfig;
+
+    protected List<PutMessageHook> putMessageHookList = new ArrayList<>();
+
+    private final CommitLog commitLog;
+
 
     @Override
     public boolean load() {
@@ -34,8 +53,83 @@ public class DefaultMessageStore implements MessageStore{
 
     @Override
     public PutMessageResult putMessage(MessageExtBrokerInner msg) {
-        return null;
+        return waitForPutResult(asyncPutMessage(msg));
     }
+
+    /**
+     * 处理、存储消息
+     *asyncPutMessage函数对比putMessage函数，主要区别就在于最后的消息刷盘逻辑和主从同步逻辑是并行还是串行
+     * @param msg MessageInstance to store
+     * @return
+     */
+    @Override
+    public CompletableFuture<PutMessageResult> asyncPutMessage(MessageExtBrokerInner msg) {
+
+        /**
+         * 在放置消息之前执行钩子函数。例如，消息验证或特殊消息转换，并返回处理结果
+         */
+        for (PutMessageHook putMessageHook : putMessageHookList) {
+            PutMessageResult handleResult = putMessageHook.executeBeforePutMessage(msg);
+            if (handleResult != null) {
+                return CompletableFuture.completedFuture(handleResult);
+            }
+        }
+
+        //检查消息是否具有属性，是不是内部批处理
+        if (msg.getProperties().containsKey(MessageConst.PROPERTY_INNER_NUM)
+                && !MessageSysFlag.check(msg.getSysFlag(), MessageSysFlag.INNER_BATCH_FLAG)) {
+            LOGGER.warn("[BUG]The message had property {} but is not an inner batch", MessageConst.PROPERTY_INNER_NUM);
+            return CompletableFuture.completedFuture(new PutMessageResult(PutMessageStatus.MESSAGE_ILLEGAL, null));
+        }
+
+        //消息是内部批处理，但是cq类型不是批处处理cq
+        if (MessageSysFlag.check(msg.getSysFlag(), MessageSysFlag.INNER_BATCH_FLAG)) {
+            Optional<TopicConfig> topicConfig = this.getTopicConfig(msg.getTopic());
+            if (!QueueTypeUtils.isBatchCq(topicConfig)) {
+                LOGGER.error("[BUG]The message is an inner batch but cq type is not batch cq");
+                return CompletableFuture.completedFuture(new PutMessageResult(PutMessageStatus.MESSAGE_ILLEGAL, null));
+            }
+        }
+
+        //当前时间戳
+        long beginTime = this.getSystemClock().now();
+        CompletableFuture<PutMessageResult> putResultFuture = this.commitLog.asyncPutMessage(msg);
+
+        putResultFuture.thenAccept(result -> {
+            //存储消息消耗的时间
+            long elapsedTime = this.getSystemClock().now() - beginTime;
+            if (elapsedTime > 500) {
+                LOGGER.warn("DefaultMessageStore#putMessage: CommitLog#putMessage cost {}ms, topic={}, bodyLength={}",
+                        elapsedTime, msg.getTopic(), msg.getBody().length);
+            }
+            //更新统计保存消息花费的时间和最大花费时间
+            this.storeStatsService.setPutMessageEntireTimeMax(elapsedTime);
+
+            if (null == result || !result.isOk()) {
+                //如果存储失败，则增加保存消息失败的次数
+                this.storeStatsService.getPutMessageFailedTimes().add(1);
+            }
+        });
+
+        return putResultFuture;
+    }
+
+    private PutMessageResult waitForPutResult(CompletableFuture<PutMessageResult> putMessageResultFuture) {
+        try {
+            int putMessageTimeout =
+                    Math.max(this.messageStoreConfig.getSyncFlushTimeout(),
+                            this.messageStoreConfig.getSlaveTimeout()) + 5000;
+            return putMessageResultFuture.get(putMessageTimeout, TimeUnit.MILLISECONDS);
+        } catch (ExecutionException | InterruptedException e) {
+            return new PutMessageResult(PutMessageStatus.UNKNOWN_ERROR, null);
+        } catch (TimeoutException e) {
+            LOGGER.error("usually it will never timeout, putMessageTimeout is much bigger than slaveTimeout and "
+                    + "flushTimeout so the result can be got anyway, but in some situations timeout will happen like full gc "
+                    + "process hangs or other unexpected situations.");
+            return new PutMessageResult(PutMessageStatus.UNKNOWN_ERROR, null);
+        }
+    }
+
 
     @Override
     public GetMessageResult getMessage(String group, String topic, int queueId, long offset, int maxMsgNums, MessageFilter messageFilter) {
@@ -217,5 +311,9 @@ public class DefaultMessageStore implements MessageStore{
         getResult.setMaxOffset(maxOffset);
         getResult.setMinOffset(minOffset);
         return getResult;
+    }
+
+    public MessageStoreConfig getMessageStoreConfig() {
+        return messageStoreConfig;
     }
 }

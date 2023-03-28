@@ -2,6 +2,8 @@ package com.open.openmq.store;
 
 import com.open.openmq.common.message.MessageExtBrokerInner;
 
+import java.util.concurrent.CompletableFuture;
+
 /**
  * @Description TODO
  * @Date 2023/3/23 14:40
@@ -72,5 +74,35 @@ public interface MessageStore {
      */
     GetMessageResult getMessage(final String group, final String topic, final int queueId,
                                 final long offset, final int maxMsgNums, final int maxTotalMsgSize, final MessageFilter messageFilter);
+
+
+    /**
+     * Store a message into store in async manner, the processor can process the next request rather than wait for
+     * result when result is completed, notify the client in async manner
+     *
+     * @param msg MessageInstance to store
+     * @return a CompletableFuture for the result of store operation
+     */
+    default CompletableFuture<PutMessageResult> asyncPutMessage(final MessageExtBrokerInner msg) {
+        return CompletableFuture.completedFuture(putMessage(msg));
+    }
+
+    /**
+     * Store a batch of messages in async manner
+     *
+     * @param messageExtBatch the message batch
+     * @return a CompletableFuture for the result of store operation
+     */
+    default CompletableFuture<PutMessageResult> asyncPutMessages(final MessageExtBatch messageExtBatch) {
+        return CompletableFuture.completedFuture(putMessages(messageExtBatch));
+    }
+
+    /**
+     * Store a batch of messages.
+     *
+     * @param messageExtBatch Message batch.
+     * @return result of storing batch messages.
+     */
+    PutMessageResult putMessages(final MessageExtBatch messageExtBatch);
 
 }
