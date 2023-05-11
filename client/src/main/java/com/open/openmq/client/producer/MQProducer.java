@@ -3,6 +3,7 @@ package com.open.openmq.client.producer;
 import com.open.openmq.client.MQAdmin;
 import com.open.openmq.client.exception.MQBrokerException;
 import com.open.openmq.client.exception.MQClientException;
+import com.open.openmq.client.exception.RequestTimeoutException;
 import com.open.openmq.client.impl.producer.SendCallback;
 import com.open.openmq.common.message.Message;
 import com.open.openmq.common.message.MessageQueue;
@@ -69,9 +70,6 @@ public interface MQProducer extends MQAdmin {
             throws MQClientException, RemotingException, InterruptedException;
 
     TransactionSendResult sendMessageInTransaction(final Message msg,
-                                                   final LocalTransactionExecuter tranExecuter, final Object arg) throws MQClientException;
-
-    TransactionSendResult sendMessageInTransaction(final Message msg,
                                                    final Object arg) throws MQClientException;
 
     //for batch
@@ -101,7 +99,7 @@ public interface MQProducer extends MQAdmin {
 
     //for rpc
     Message request(final Message msg, final long timeout) throws RequestTimeoutException, MQClientException,
-            RemotingException, MQBrokerException, InterruptedException;
+            RemotingException, MQBrokerException, InterruptedException, RequestTimeoutException;
 
     void request(final Message msg, final RequestCallback requestCallback, final long timeout)
             throws MQClientException, RemotingException, InterruptedException, MQBrokerException;
