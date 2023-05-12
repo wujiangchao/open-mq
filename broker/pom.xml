@@ -19,6 +19,12 @@
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>openmq-common</artifactId>
+            <exclusions>
+                <exclusion>
+                    <artifactId>annotations</artifactId>
+                    <groupId>org.jetbrains</groupId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>

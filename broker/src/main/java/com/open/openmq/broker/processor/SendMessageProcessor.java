@@ -1,16 +1,26 @@
 package com.open.openmq.broker.processor;
 
 import com.open.openmq.client.hook.SendMessageContext;
+import com.open.openmq.common.TopicConfig;
+import com.open.openmq.common.UtilAll;
+import com.open.openmq.common.message.MessageAccessor;
 import com.open.openmq.common.message.MessageConst;
+import com.open.openmq.common.message.MessageDecoder;
 import com.open.openmq.common.message.MessageExt;
 import com.open.openmq.common.message.MessageExtBrokerInner;
 import com.open.openmq.common.protocol.RequestCode;
+import com.open.openmq.common.protocol.ResponseCode;
+import com.open.openmq.common.protocol.header.SendMessageRequestHeader;
+import com.open.openmq.common.protocol.header.SendMessageResponseHeader;
 import com.open.openmq.remoting.exception.RemotingCommandException;
 import com.open.openmq.remoting.netty.NettyRequestProcessor;
 import com.open.openmq.remoting.protocol.RemotingCommand;
+import com.open.openmq.store.AppendMessageResult;
+import com.open.openmq.store.PutMessageResult;
 import io.netty.channel.ChannelHandlerContext;
 
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * @Description TODO
@@ -18,6 +28,8 @@ import java.util.Map;
  * @Author jack wu
  */
 public class SendMessageProcessor extends AbstractSendMessageProcessor implements NettyRequestProcessor {
+    protected static final InternalLogger LOGGER = InternalLoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
+
     public SendMessageProcessor() {
         super(brokerController);
     }
@@ -69,6 +81,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
                                        final TopicQueueMappingContext mappingContext,
                                        final SendMessageCallback sendMessageCallback) throws RemotingCommandException {
 
+        // 预发送处理，如：检查消息、主题是否符合规范
         final RemotingCommand response = preSend(ctx, request, requestHeader);
         if (response.getCode() != -1) {
             return response;
@@ -78,7 +91,9 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
 
         final byte[] body = request.getBody();
 
+        // 发送消息时，是否指定消费队列，若没有则随机选择
         int queueIdInt = requestHeader.getQueueId();
+        // 获取topic配置属性
         TopicConfig topicConfig = this.brokerController.getTopicConfigManager().selectTopicConfig(requestHeader.getTopic());
 
         if (queueIdInt < 0) {
@@ -89,7 +104,9 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         msgInner.setTopic(requestHeader.getTopic());
         msgInner.setQueueId(queueIdInt);
 
+        // 消息扩展属性
         Map<String, String> oriProps = MessageDecoder.string2messageProperties(requestHeader.getProperties());
+        // 消息是否进入重试或延迟队列中（重试次数失败）
         if (!handleRetryAndDLQ(requestHeader, response, request, msgInner, topicConfig, oriProps)) {
             return response;
         }
@@ -115,6 +132,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         msgInner.setPropertiesString(MessageDecoder.messageProperties2String(msgInner.getProperties()));
 
         // Map<String, String> oriProps = MessageDecoder.string2messageProperties(requestHeader.getProperties());
+        // 事务标签
         String traFlag = oriProps.get(MessageConst.PROPERTY_TRANSACTION_PREPARED);
         boolean sendTransactionPrepareMessage = false;
         if (Boolean.parseBoolean(traFlag)
@@ -131,10 +149,14 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
 
         long beginTimeMillis = this.brokerController.getMessageStore().now();
 
+        // 消息是否异步存储
         if (brokerController.getBrokerConfig().isAsyncSendEnable()) {
             CompletableFuture<PutMessageResult> asyncPutMessageFuture;
             if (sendTransactionPrepareMessage) {
-                asyncPutMessageFuture = this.brokerController.getTransactionalMessageService().asyncPrepareMessage(msgInner);
+                //quick
+                asyncPutMessageFuture = null;
+                // 事务prepare操作
+                //asyncPutMessageFuture = this.brokerController.getTransactionalMessageService().asyncPrepareMessage(msgInner);
             } else {
                 asyncPutMessageFuture = this.brokerController.getMessageStore().asyncPutMessage(msgInner);
             }
@@ -152,10 +174,13 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
             }, this.brokerController.getPutMessageFutureExecutor());
             // Returns null to release the send message thread
             return null;
+            // 消息同步存储
         } else {
             PutMessageResult putMessageResult = null;
+            // 事务消息存储
             if (sendTransactionPrepareMessage) {
-                putMessageResult = this.brokerController.getTransactionalMessageService().prepareMessage(msgInner);
+                //quick
+                //putMessageResult = this.brokerController.getTransactionalMessageService().prepareMessage(msgInner);
             } else {
                 putMessageResult = this.brokerController.getMessageStore().putMessage(msgInner);
             }
@@ -332,4 +357,44 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         }
         return response;
     }
+
+    private RemotingCommand preSend(ChannelHandlerContext ctx, RemotingCommand request,
+                                    SendMessageRequestHeader requestHeader) {
+        final RemotingCommand response = RemotingCommand.createResponseCommand(SendMessageResponseHeader.class);
+
+        response.setOpaque(request.getOpaque());
+
+        response.addExtField(MessageConst.PROPERTY_MSG_REGION, this.brokerController.getBrokerConfig().getRegionId());
+        response.addExtField(MessageConst.PROPERTY_TRACE_SWITCH, String.valueOf(this.brokerController.getBrokerConfig().isTraceOn()));
+
+        LOGGER.debug("Receive SendMessage request command {}", request);
+
+        final long startTimestamp = this.brokerController.getBrokerConfig().getStartAcceptSendRequestTimeStamp();
+
+        if (this.brokerController.getMessageStore().now() < startTimestamp) {
+            response.setCode(ResponseCode.SYSTEM_ERROR);
+            response.setRemark(String.format("broker unable to service, until %s", UtilAll.timeMillisToHumanString2(startTimestamp)));
+            return response;
+        }
+
+        response.setCode(-1);
+        super.msgCheck(ctx, requestHeader, request, response);
+
+        return response;
+    }
+
+    protected void doResponse(ChannelHandlerContext ctx, RemotingCommand request,
+                              final RemotingCommand response) {
+        if (!request.isOnewayRPC()) {
+            try {
+                ctx.writeAndFlush(response);
+            } catch (Throwable e) {
+                LOGGER.error(
+                        "SendMessageProcessor finished processing the request, but failed to send response, client "
+                                + "address={}, request={}, response={}", RemotingHelper.parseChannelRemoteAddr(ctx.channel()),
+                        request.toString(), response.toString(), e);
+            }
+        }
+    }
+
 }

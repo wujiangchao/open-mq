@@ -7,6 +7,8 @@ import com.open.openmq.common.TopicConfig;
 import com.open.openmq.common.filter.ExpressionType;
 import com.open.openmq.common.protocol.RequestCode;
 import com.open.openmq.common.protocol.ResponseCode;
+import com.open.openmq.common.protocol.header.PullMessageRequestHeader;
+import com.open.openmq.common.protocol.header.PullMessageResponseHeader;
 import com.open.openmq.common.protocol.heartbeat.MessageModel;
 import com.open.openmq.common.protocol.heartbeat.SubscriptionData;
 import com.open.openmq.remoting.exception.RemotingCommandException;
@@ -23,6 +25,7 @@ import io.netty.channel.ChannelHandlerContext;
  * @Author jack wu
  */
 public class PullMessageProcessor implements NettyRequestProcessor {
+    private static final InternalLogger LOGGER = InternalLoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
     private final BrokerController brokerController;
 
     @Override

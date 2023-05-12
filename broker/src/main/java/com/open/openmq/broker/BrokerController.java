@@ -4,9 +4,11 @@ import com.open.openmq.broker.latency.BrokerFixedThreadPoolExecutor;
 import com.open.openmq.broker.processor.PullMessageProcessor;
 import com.open.openmq.broker.processor.SendMessageProcessor;
 import com.open.openmq.broker.slave.SlaveSynchronize;
+import com.open.openmq.broker.topic.TopicConfigManager;
 import com.open.openmq.common.BrokerConfig;
 import com.open.openmq.common.MixAll;
 import com.open.openmq.common.ThreadFactoryImpl;
+import com.open.openmq.common.UtilAll;
 import com.open.openmq.common.protocol.RequestCode;
 import com.open.openmq.remoting.RemotingServer;
 import com.open.openmq.remoting.netty.NettyClientConfig;
@@ -935,5 +937,13 @@ public class BrokerController {
 
     public MessageStoreConfig getMessageStoreConfig() {
         return messageStoreConfig;
+    }
+
+    public TopicConfigManager getTopicConfigManager() {
+        return topicConfigManager;
+    }
+
+    public ExecutorService getPutMessageFutureExecutor() {
+        return putMessageFutureExecutor;
     }
 }

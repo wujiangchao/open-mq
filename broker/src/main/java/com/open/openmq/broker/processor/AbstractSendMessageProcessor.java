@@ -12,9 +12,17 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
 
     protected final BrokerController brokerController;
 
+    private List<SendMessageHook> sendMessageHookList;
+
+
     protected AbstractSendMessageProcessor(BrokerController brokerController) {
         this.brokerController = brokerController;
     }
+
+    public boolean hasSendMessageHook() {
+        return sendMessageHookList != null && !this.sendMessageHookList.isEmpty();
+    }
+
 
     @Override
     public boolean rejectRequest() {
