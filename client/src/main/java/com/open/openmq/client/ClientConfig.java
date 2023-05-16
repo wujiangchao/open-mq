@@ -1,5 +1,6 @@
 package com.open.openmq.client;
 
+import com.open.openmq.common.protocol.NamespaceUtil;
 import com.open.openmq.common.utils.NameServerAddressUtils;
 
 /**
@@ -28,8 +29,6 @@ public class ClientConfig {
     }
 
     public String withNamespace(String resource) {
-        //quick
-        return resource;
-        //return NamespaceUtil.wrapNamespace(this.getNamespace(), resource);
+        return NamespaceUtil.wrapNamespace(this.getNamespace(), resource);
     }
 }

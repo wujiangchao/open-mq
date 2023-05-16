@@ -3,6 +3,7 @@ package com.open.openmq.client.consumer;
 import com.open.openmq.client.MQAdmin;
 import com.open.openmq.client.exception.MQBrokerException;
 import com.open.openmq.client.exception.MQClientException;
+import com.open.openmq.common.message.MessageExt;
 import com.open.openmq.common.message.MessageQueue;
 import com.open.openmq.remoting.exception.RemotingException;
 

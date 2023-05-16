@@ -2,12 +2,22 @@ package com.open.openmq.client.consumer;
 
 import com.open.openmq.client.ClientConfig;
 import com.open.openmq.client.MessageSelector;
+import com.open.openmq.client.consumer.listener.MessageListener;
+import com.open.openmq.client.consumer.listener.MessageListenerConcurrently;
+import com.open.openmq.client.consumer.listener.MessageListenerOrderly;
+import com.open.openmq.client.consumer.rebalance.AllocateMessageQueueAveragely;
 import com.open.openmq.client.exception.MQBrokerException;
 import com.open.openmq.client.exception.MQClientException;
 import com.open.openmq.client.impl.consumer.DefaultMQPushConsumerImpl;
+import com.open.openmq.client.log.ClientLogger;
+import com.open.openmq.client.store.OffsetStore;
+import com.open.openmq.client.trace.TraceDispatcher;
 import com.open.openmq.common.MixAll;
+import com.open.openmq.common.UtilAll;
+import com.open.openmq.common.message.MessageExt;
 import com.open.openmq.common.message.MessageQueue;
 import com.open.openmq.common.protocol.heartbeat.MessageModel;
+import com.open.openmq.logging.InternalLogger;
 import com.open.openmq.remoting.RPCHook;
 import com.open.openmq.remoting.exception.RemotingException;
 
@@ -22,9 +32,8 @@ import java.util.Set;
  */
 public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsumer {
 
-    /**
-     * Internal implementation. Most of the functions herein are delegated to it.
-     */
+    private final InternalLogger log = ClientLogger.getLog();
+
     protected final transient DefaultMQPushConsumerImpl defaultMQPushConsumerImpl;
 
     private String consumerGroup;
@@ -149,6 +158,8 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
      */
     private long consumeTimeout = 15;
 
+
+
     /**
      * Default constructor.
      */
@@ -171,7 +182,7 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
      * @param namespace Namespace for this MQ Producer instance.
      * @param consumerGroup Consumer group.
      */
-    public DefaultMQPushConsumer(final String namespace, final String consuumerGroup) {
+    public DefaultMQPushConsumer(final String namespace, final String consumerGroup) {
             this(namespace, consumerGroup, null, new AllocateMessageQeueAveragely());
     }
 

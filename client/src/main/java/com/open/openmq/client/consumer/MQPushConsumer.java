@@ -1,6 +1,8 @@
 package com.open.openmq.client.consumer;
 
 import com.open.openmq.client.MessageSelector;
+import com.open.openmq.client.consumer.listener.MessageListenerConcurrently;
+import com.open.openmq.client.consumer.listener.MessageListenerOrderly;
 import com.open.openmq.client.exception.MQClientException;
 
 /**
@@ -19,8 +21,16 @@ public interface MQPushConsumer extends MQConsumer{
      */
     void shutdown();
 
+    /**
+     * 注册并发消息事件监听器
+     * @param messageListener
+     */
     void registerMessageListener(final MessageListenerConcurrently messageListener);
 
+    /**
+     * 注册顺序消息事件监听器
+     * @param messageListener
+     */
     void registerMessageListener(final MessageListenerOrderly messageListener);
 
     /**
