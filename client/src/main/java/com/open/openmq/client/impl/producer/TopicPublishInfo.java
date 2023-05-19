@@ -2,6 +2,7 @@ package com.open.openmq.client.impl.producer;
 
 import com.open.openmq.client.common.ThreadLocalIndex;
 import com.open.openmq.common.message.MessageQueue;
+import com.open.openmq.common.protocol.route.TopicRouteData;
 
 import java.util.ArrayList;
 import java.util.List;

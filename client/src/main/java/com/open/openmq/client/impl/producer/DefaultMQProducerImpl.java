@@ -4,46 +4,111 @@ import com.open.openmq.client.Validators;
 import com.open.openmq.client.common.ClientErrorCode;
 import com.open.openmq.client.exception.MQBrokerException;
 import com.open.openmq.client.exception.MQClientException;
+import com.open.openmq.client.hook.CheckForbiddenContext;
 import com.open.openmq.client.hook.SendMessageContext;
+import com.open.openmq.client.hook.SendMessageHook;
 import com.open.openmq.client.impl.CommunicationMode;
 import com.open.openmq.client.impl.factory.MQClientInstance;
 import com.open.openmq.client.latency.MQFaultStrategy;
+import com.open.openmq.client.log.ClientLogger;
 import com.open.openmq.client.producer.DefaultMQProducer;
 import com.open.openmq.client.producer.SendResult;
 import com.open.openmq.common.MixAll;
 import com.open.openmq.common.ServiceState;
 import com.open.openmq.common.message.Message;
+import com.open.openmq.common.message.MessageAccessor;
 import com.open.openmq.common.message.MessageConst;
+import com.open.openmq.common.message.MessageDecoder;
 import com.open.openmq.common.message.MessageQueue;
 import com.open.openmq.common.message.MessageType;
+import com.open.openmq.common.protocol.NamespaceUtil;
+import com.open.openmq.common.protocol.header.SendMessageRequestHeader;
+import com.open.openmq.common.sysflag.MessageSysFlag;
+import com.open.openmq.logging.InternalLogger;
+import com.open.openmq.remoting.RPCHook;
 import com.open.openmq.remoting.exception.RemotingConnectException;
 import com.open.openmq.remoting.exception.RemotingException;
 import com.open.openmq.remoting.exception.RemotingTimeoutException;
 import com.open.openmq.remoting.exception.RemotingTooMuchRequestException;
 
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * @Description TODO
  * @Date 2023/2/8 22:03
  * @Author jack wu
  */
-public class DefaultMQProducerImpl implements MQProducerInner{
+public class DefaultMQProducerImpl implements MQProducerInner {
     private ServiceState serviceState = ServiceState.CREATE_JUST;
     private final Random random = new Random();
+    private final InternalLogger log = ClientLogger.getLog();
     private final ConcurrentMap<String/* topic */, TopicPublishInfo> topicPublishInfoTable =
             new ConcurrentHashMap<String, TopicPublishInfo>();
+    private final RPCHook rpcHook;
+    private final BlockingQueue<Runnable> asyncSenderThreadPoolQueue;
+    private final ExecutorService defaultAsyncSenderExecutor;
     private MQClientInstance mQClientFactory;
     private MQFaultStrategy mqFaultStrategy = new MQFaultStrategy();
     private final DefaultMQProducer defaultMQProducer;
 
+    private final ArrayList<SendMessageHook> sendMessageHookList = new ArrayList<SendMessageHook>();
+
+    /**
+     * backpressure related
+     */
+    private Semaphore semaphoreAsyncSendNum;
+    private Semaphore semaphoreAsyncSendSize;
+
     public DefaultMQProducerImpl(final DefaultMQProducer defaultMQProducer) {
         this(defaultMQProducer, null);
+    }
+
+    public DefaultMQProducerImpl(final DefaultMQProducer defaultMQProducer, RPCHook rpcHook) {
+        this.defaultMQProducer = defaultMQProducer;
+        this.rpcHook = rpcHook;
+
+        this.asyncSenderThreadPoolQueue = new LinkedBlockingQueue<Runnable>(50000);
+        this.defaultAsyncSenderExecutor = new ThreadPoolExecutor(
+                Runtime.getRuntime().availableProcessors(),
+                Runtime.getRuntime().availableProcessors(),
+                1000 * 60,
+                TimeUnit.MILLISECONDS,
+                this.asyncSenderThreadPoolQueue,
+                new ThreadFactory() {
+                    private AtomicInteger threadIndex = new AtomicInteger(0);
+
+                    @Override
+                    public Thread newThread(Runnable r) {
+                        return new Thread(r, "AsyncSenderExecutor_" + this.threadIndex.incrementAndGet());
+                    }
+                });
+        if (defaultMQProducer.getBackPressureForAsyncSendNum() > 10) {
+            semaphoreAsyncSendNum = new Semaphore(Math.max(defaultMQProducer.getBackPressureForAsyncSendNum(), 10), true);
+        } else {
+            semaphoreAsyncSendNum = new Semaphore(10, true);
+            log.info("semaphoreAsyncSendNum can not be smaller than 10.");
+        }
+
+        if (defaultMQProducer.getBackPressureForAsyncSendNum() > 1024 * 1024) {
+            semaphoreAsyncSendSize = new Semaphore(Math.max(defaultMQProducer.getBackPressureForAsyncSendNum(), 1024 * 1024), true);
+        } else {
+            semaphoreAsyncSendSize = new Semaphore(1024 * 1024, true);
+            log.info("semaphoreAsyncSendSize can not be smaller than 1M.");
+        }
     }
 
 
@@ -120,7 +185,6 @@ public class DefaultMQProducerImpl implements MQProducerInner{
                                         continue;
                                     }
                                 }
-
                                 return sendResult;
                             default:
                                 break;
@@ -177,8 +241,6 @@ public class DefaultMQProducerImpl implements MQProducerInner{
                     msg.getTopic(),
                     Arrays.toString(brokersSent));
 
-            info += FAQUrl.suggestTodo(FAQUrl.SEND_MSG_FAILED);
-
             MQClientException mqClientException = new MQClientException(info, exception);
             if (callTimeout) {
                 throw new RemotingTooMuchRequestException("sendDefaultImpl call timeout");
@@ -199,15 +261,14 @@ public class DefaultMQProducerImpl implements MQProducerInner{
 
         validateNameServerSetting();
         // 抛出topic异常信息
-        throw new MQClientException("No route info of this topic: " + msg.getTopic() + FAQUrl.suggestTodo(FAQUrl.NO_TOPIC_ROUTE_INFO),
+        throw new MQClientException("No route info of this topic: " + msg.getTopic(),
                 null).setResponseCode(ClientErrorCode.NOT_FOUND_TOPIC_EXCEPTION);
     }
 
     private void makeSureStateOK() throws MQClientException {
         if (this.serviceState != ServiceState.RUNNING) {
             throw new MQClientException("The producer service state not OK, "
-                    + this.serviceState
-                    + FAQUrl.suggestTodo(FAQUrl.CLIENT_SERVICE_NOT_OK),
+                    + this.serviceState,
                     null);
         }
     }
@@ -251,18 +312,23 @@ public class DefaultMQProducerImpl implements MQProducerInner{
         List<String> nsList = this.getMqClientFactory().getMQClientAPIImpl().getNameServerAddressList();
         if (null == nsList || nsList.isEmpty()) {
             throw new MQClientException(
-                    "No name server address, please set it." + FAQUrl.suggestTodo(FAQUrl.NAME_SERVER_ADDR_NOT_EXIST_URL), null).setResponseCode(ClientErrorCode.NO_NAME_SERVER_EXCEPTION);
+                    "No name server address, please set it.", null).setResponseCode(ClientErrorCode.NO_NAME_SERVER_EXCEPTION);
         }
+    }
+
+    public void updateFaultItem(final String brokerName, final long currentLatency, boolean isolation) {
+        this.mqFaultStrategy.updateFaultItem(brokerName, currentLatency, isolation);
     }
 
     /**
      * 真正发送消息
-     * @param msg 待发送的消息
-     * @param mq  消息待发送的队列，该队列是通过selectOneMessageQueue选择的
+     *
+     * @param msg               待发送的消息
+     * @param mq                消息待发送的队列，该队列是通过selectOneMessageQueue选择的
      * @param communicationMode 消息发送模式
-     * @param sendCallback  如果是异步发送，则需要实现SendCallback
+     * @param sendCallback      如果是异步发送，则需要实现SendCallback
      * @param topicPublishInfo  topic对应的路由信息表
-     * @param timeout 发送超时时间，由客户端指定
+     * @param timeout           发送超时时间，由客户端指定
      * @return
      * @throws MQClientException
      * @throws RemotingException
@@ -513,7 +579,7 @@ public class DefaultMQProducerImpl implements MQProducerInner{
                 if (!registerOK) {
                     this.serviceState = ServiceState.CREATE_JUST;
                     throw new MQClientException("The producer group[" + this.defaultMQProducer.getProducerGroup()
-                            + "] has been created before, specify another name please." + FAQUrl.suggestTodo(FAQUrl.GROUP_NAME_DUPLICATE_URL),
+                            + "] has been created before, specify another name please." ,
                             null);
                 }
 
@@ -531,8 +597,7 @@ public class DefaultMQProducerImpl implements MQProducerInner{
             case START_FAILED:
             case SHUTDOWN_ALREADY:
                 throw new MQClientException("The producer service state not OK, maybe started once, "
-                        + this.serviceState
-                        + FAQUrl.suggestTodo(FAQUrl.CLIENT_SERVICE_NOT_OK),
+                        + this.serviceState,
                         null);
             default:
                 break;
@@ -543,5 +608,72 @@ public class DefaultMQProducerImpl implements MQProducerInner{
 
         RequestFutureHolder.getInstance().startScheduledTask(this);
     }
+
+    public boolean hasSendMessageHook() {
+        return !this.sendMessageHookList.isEmpty();
+    }
+
+    public void executeSendMessageHookBefore(final SendMessageContext context) {
+        if (!this.sendMessageHookList.isEmpty()) {
+            for (SendMessageHook hook : this.sendMessageHookList) {
+                try {
+                    hook.sendMessageBefore(context);
+                } catch (Throwable e) {
+                    log.warn("failed to executeSendMessageHookBefore", e);
+                }
+            }
+        }
+    }
+
+    public void executeSendMessageHookAfter(final SendMessageContext context) {
+        if (!this.sendMessageHookList.isEmpty()) {
+            for (SendMessageHook hook : this.sendMessageHookList) {
+                try {
+                    hook.sendMessageAfter(context);
+                } catch (Throwable e) {
+                    log.warn("failed to executeSendMessageHookAfter", e);
+                }
+            }
+        }
+    }
+
+    private void checkConfig() throws MQClientException {
+        Validators.checkGroup(this.defaultMQProducer.getProducerGroup());
+
+        if (this.defaultMQProducer.getProducerGroup().equals(MixAll.DEFAULT_PRODUCER_GROUP)) {
+            throw new MQClientException("producerGroup can not equal " + MixAll.DEFAULT_PRODUCER_GROUP + ", please specify another one.",
+                    null);
+        }
+    }
+
+    private boolean tryToCompressMessage(final Message msg) {
+        if (msg instanceof MessageBatch) {
+            //batch does not support compressing right now
+            return false;
+        }
+        byte[] body = msg.getBody();
+        if (body != null) {
+            if (body.length >= this.defaultMQProducer.getCompressMsgBodyOverHowmuch()) {
+                try {
+                    byte[] data = compressor.compress(body, compressLevel);
+                    if (data != null) {
+                        msg.setBody(data);
+                        return true;
+                    }
+                } catch (IOException e) {
+                    log.error("tryToCompressMessage exception", e);
+                    log.warn(msg.toString());
+                }
+            }
+        }
+
+        return false;
+    }
+
+
+    public MQClientInstance getMqClientFactory() {
+        return mQClientFactory;
+    }
+
 
 }
