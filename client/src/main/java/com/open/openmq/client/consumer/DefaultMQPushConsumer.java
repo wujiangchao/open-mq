@@ -16,6 +16,7 @@ import com.open.openmq.common.MixAll;
 import com.open.openmq.common.UtilAll;
 import com.open.openmq.common.message.MessageExt;
 import com.open.openmq.common.message.MessageQueue;
+import com.open.openmq.common.protocol.NamespaceUtil;
 import com.open.openmq.common.protocol.heartbeat.MessageModel;
 import com.open.openmq.logging.InternalLogger;
 import com.open.openmq.remoting.RPCHook;
