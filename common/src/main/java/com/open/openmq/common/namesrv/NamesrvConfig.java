@@ -26,6 +26,8 @@ public class NamesrvConfig {
      */
     private String configStorePath = System.getProperty("user.home") + File.separator + "namesrv" + File.separator + "namesrv.properties";
     private String productEnvName = "center";
+
+
     /**
      * 决定NamesrvController#registerProcessor()注册处理器时
      * 用的是ClusterTestRequestProcessor 还是 DefaultRequestProcessor
@@ -34,10 +36,33 @@ public class NamesrvConfig {
     private boolean orderMessageEnable = false;
     private boolean returnOrderTopicConfigToBroker = true;
 
+
+    /**
+     * Indicates the nums of thread to handle client requests, like GET_ROUTEINTO_BY_TOPIC.
+     */
+    private int clientRequestThreadPoolNums = 8;
+    /**
+     * Indicates the nums of thread to handle broker or operation requests, like REGISTER_BROKER.
+     */
+    private int defaultThreadPoolNums = 16;
+    /**
+     * Indicates the capacity of queue to hold client requests.
+     */
+    private int clientRequestThreadPoolQueueCapacity = 50000;
+    /**
+     * Indicates the capacity of queue to hold broker or operation requests.
+     */
+    private int defaultThreadPoolQueueCapacity = 10000;
+
     /**
      * Is startup the controller in this name-srv
      */
     private boolean enableControllerInNamesrv = false;
+
+    /**
+     * Interval of periodic scanning for non-active broker;
+     */
+    private long scanNotActiveBrokerInterval = 5 * 1000;
 
 
     public boolean isEnableControllerInNamesrv() {
@@ -58,5 +83,77 @@ public class NamesrvConfig {
 
     public void setRocketmqHome(String rocketmqHome) {
         this.rocketmqHome = rocketmqHome;
+    }
+
+    public int getClientRequestThreadPoolNums() {
+        return clientRequestThreadPoolNums;
+    }
+
+    public void setClientRequestThreadPoolNums(int clientRequestThreadPoolNums) {
+        this.clientRequestThreadPoolNums = clientRequestThreadPoolNums;
+    }
+
+    public int getDefaultThreadPoolNums() {
+        return defaultThreadPoolNums;
+    }
+
+    public void setDefaultThreadPoolNums(int defaultThreadPoolNums) {
+        this.defaultThreadPoolNums = defaultThreadPoolNums;
+    }
+
+    public int getClientRequestThreadPoolQueueCapacity() {
+        return clientRequestThreadPoolQueueCapacity;
+    }
+
+    public void setClientRequestThreadPoolQueueCapacity(int clientRequestThreadPoolQueueCapacity) {
+        this.clientRequestThreadPoolQueueCapacity = clientRequestThreadPoolQueueCapacity;
+    }
+
+    public int getDefaultThreadPoolQueueCapacity() {
+        return defaultThreadPoolQueueCapacity;
+    }
+
+    public void setDefaultThreadPoolQueueCapacity(int defaultThreadPoolQueueCapacity) {
+        this.defaultThreadPoolQueueCapacity = defaultThreadPoolQueueCapacity;
+    }
+
+    public boolean isClusterTest() {
+        return clusterTest;
+    }
+
+    public void setClusterTest(boolean clusterTest) {
+        this.clusterTest = clusterTest;
+    }
+
+    public long getScanNotActiveBrokerInterval() {
+        return scanNotActiveBrokerInterval;
+    }
+
+    public void setScanNotActiveBrokerInterval(long scanNotActiveBrokerInterval) {
+        this.scanNotActiveBrokerInterval = scanNotActiveBrokerInterval;
+    }
+
+    public String getProductEnvName() {
+        return productEnvName;
+    }
+
+    public void setProductEnvName(String productEnvName) {
+        this.productEnvName = productEnvName;
+    }
+
+    public boolean isOrderMessageEnable() {
+        return orderMessageEnable;
+    }
+
+    public void setOrderMessageEnable(boolean orderMessageEnable) {
+        this.orderMessageEnable = orderMessageEnable;
+    }
+
+    public String getKvConfigPath() {
+        return kvConfigPath;
+    }
+
+    public void setKvConfigPath(String kvConfigPath) {
+        this.kvConfigPath = kvConfigPath;
     }
 }
