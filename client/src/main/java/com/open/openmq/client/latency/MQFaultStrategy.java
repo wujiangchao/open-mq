@@ -1,7 +1,9 @@
 package com.open.openmq.client.latency;
 
 import com.open.openmq.client.impl.producer.TopicPublishInfo;
+import com.open.openmq.client.log.ClientLogger;
 import com.open.openmq.common.message.MessageQueue;
+import com.open.openmq.logging.InternalLogger;
 
 /**
  * @Description queue分布在各个不同的broker服务器中时，当尝试向其中一个queue发送消息时，
@@ -12,7 +14,16 @@ import com.open.openmq.common.message.MessageQueue;
  * @Author jack wu
  */
 public class MQFaultStrategy {
+    private final static InternalLogger log = ClientLogger.getLog();
+    private final LatencyFaultTolerance<String> latencyFaultTolerance = new LatencyFaultToleranceImpl();
 
+    /**
+     * RocketMQ中的延迟故障机制是为了帮助Producer能够通过消息发送延迟或者消息发送结果主动感知Broker忙碌或者故障，
+     * 消息发送延迟或者消息发送失败时可以将Broker排除在选择列表之外
+     */
+    private boolean sendLatencyFaultEnable = false;
+    private long[] latencyMax = {50L, 100L, 550L, 1000L, 2000L, 3000L, 15000L};
+    private long[] notAvailableDuration = {0L, 0L, 30000L, 60000L, 120000L, 180000L, 600000L};
 
     public MessageQueue selectOneMessageQueue(final TopicPublishInfo tpInfo, final String lastBrokerName) {
         if (this.sendLatencyFaultEnable) {
@@ -49,5 +60,26 @@ public class MQFaultStrategy {
         }
 
         return tpInfo.selectOneMessageQueue(lastBrokerName);
+    }
+
+
+    public void updateFaultItem(final String brokerName, final long currentLatency, boolean isolation) {
+        if (this.sendLatencyFaultEnable) {
+            long duration = computeNotAvailableDuration(isolation ? 30000 : currentLatency);
+            this.latencyFaultTolerance.updateFaultItem(brokerName, currentLatency, duration);
+        }
+    }
+
+    private long computeNotAvailableDuration(final long currentLatency) {
+        for (int i = latencyMax.length - 1; i >= 0; i--) {
+            if (currentLatency >= latencyMax[i]) {
+                return this.notAvailableDuration[i];
+            }
+        }
+        return 0;
+    }
+
+    public long[] getNotAvailableDuration() {
+        return notAvailableDuration;
     }
 }
