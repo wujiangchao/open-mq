@@ -36,6 +36,8 @@ public class MixAll {
     public static final String RETRY_GROUP_TOPIC_PREFIX = "%RETRY%";
     public static final String DLQ_GROUP_TOPIC_PREFIX = "%DLQ%";
     public static final String CID_RMQ_SYS_PREFIX = "CID_RMQ_SYS_";
+    public static final String DEFAULT_TRACE_REGION_ID = "DefaultRegion";
+    public static final String REQ_T = "ReqT";
 
     public static void properties2Object(final Properties p, final Object object) {
         Method[] methods = object.getClass().getMethods();

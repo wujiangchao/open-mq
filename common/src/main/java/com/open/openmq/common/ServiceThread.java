@@ -1,6 +1,11 @@
 package com.open.openmq.common;
 
+import com.open.openmq.common.constant.LoggerName;
+import com.open.openmq.logging.InternalLogger;
+import com.open.openmq.logging.InternalLoggerFactory;
+
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * @Description TODO
@@ -8,9 +13,21 @@ import java.util.concurrent.TimeUnit;
  * @Author jack wu
  */
 public abstract class ServiceThread implements Runnable{
+    private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.COMMON_LOGGER_NAME);
 
     protected Thread thread;
 
+    protected volatile boolean stopped = false;
+    protected boolean isDaemon = false;
+
+    protected final CountDownLatch2 waitPoint = new CountDownLatch2(1);
+    protected volatile AtomicBoolean hasNotified = new AtomicBoolean(false);
+
+    private static final long JOIN_TIME = 90 * 1000;
+
+
+    //Make it able to restart the thread
+    private final AtomicBoolean started = new AtomicBoolean(false);
 
     public ServiceThread() {
 
@@ -83,5 +100,21 @@ public abstract class ServiceThread implements Runnable{
             hasNotified.set(false);
             this.onWaitEnd();
         }
+    }
+
+    protected void onWaitEnd() {
+    }
+
+
+    public boolean isStopped() {
+        return stopped;
+    }
+
+    public boolean isDaemon() {
+        return isDaemon;
+    }
+
+    public void setDaemon(boolean daemon) {
+        isDaemon = daemon;
     }
 }
