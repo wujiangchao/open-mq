@@ -2,6 +2,8 @@
 package com.open.openmq.client.exception;
 
 
+import com.open.openmq.common.UtilAll;
+
 public class MQBrokerException extends Exception {
     private static final long serialVersionUID = 5975020272601250368L;
     private final int responseCode;
@@ -15,16 +17,16 @@ public class MQBrokerException extends Exception {
     }
 
     public MQBrokerException(int responseCode, String errorMessage) {
-        super(FAQUrl.attachDefaultURL("CODE: " + UtilAll.responseCode2String(responseCode) + "  DESC: "
-                + errorMessage));
+        super("CODE: " + UtilAll.responseCode2String(responseCode) + "  DESC: "
+                + errorMessage);
         this.responseCode = responseCode;
         this.errorMessage = errorMessage;
         this.brokerAddr = null;
     }
 
     public MQBrokerException(int responseCode, String errorMessage, String brokerAddr) {
-        super(FAQUrl.attachDefaultURL("CODE: " + UtilAll.responseCode2String(responseCode) + "  DESC: "
-            + errorMessage + (brokerAddr != null ? " BROKER: " + brokerAddr : "")));
+        super("CODE: " + UtilAll.responseCode2String(responseCode) + "  DESC: "
+                + errorMessage + (brokerAddr != null ? " BROKER: " + brokerAddr : ""));
         this.responseCode = responseCode;
         this.errorMessage = errorMessage;
         this.brokerAddr = brokerAddr;
