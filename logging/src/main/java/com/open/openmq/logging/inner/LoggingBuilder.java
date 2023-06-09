@@ -168,12 +168,14 @@ public class LoggingBuilder {
             dispatcher.start();
         }
 
+        @Override
         public void addAppender(final Appender newAppender) {
             synchronized (appenderPipeline) {
                 appenderPipeline.addAppender(newAppender);
             }
         }
 
+        @Override
         public void append(final LoggingEvent event) {
             if (dispatcher == null || !dispatcher.isAlive() || bufferSize <= 0) {
                 synchronized (appenderPipeline) {
@@ -228,6 +230,7 @@ public class LoggingBuilder {
             }
         }
 
+        @Override
         public void close() {
 
             synchronized (buffer) {
@@ -257,36 +260,42 @@ public class LoggingBuilder {
             }
         }
 
+        @Override
         public Enumeration getAllAppenders() {
             synchronized (appenderPipeline) {
                 return appenderPipeline.getAllAppenders();
             }
         }
 
+        @Override
         public Appender getAppender(final String name) {
             synchronized (appenderPipeline) {
                 return appenderPipeline.getAppender(name);
             }
         }
 
+        @Override
         public boolean isAttached(final Appender appender) {
             synchronized (appenderPipeline) {
                 return appenderPipeline.isAttached(appender);
             }
         }
 
+        @Override
         public void removeAllAppenders() {
             synchronized (appenderPipeline) {
                 appenderPipeline.removeAllAppenders();
             }
         }
 
+        @Override
         public void removeAppender(final Appender appender) {
             synchronized (appenderPipeline) {
                 appenderPipeline.removeAppender(appender);
             }
         }
 
+        @Override
         public void removeAppender(final String name) {
             synchronized (appenderPipeline) {
                 appenderPipeline.removeAppender(name);
@@ -473,10 +482,12 @@ public class LoggingBuilder {
             return immediateFlush;
         }
 
+        @Override
         public void activateOptions() {
         }
 
 
+        @Override
         public void append(LoggingEvent event) {
             if (!checkEntryConditions()) {
                 return;
@@ -503,6 +514,7 @@ public class LoggingBuilder {
             return true;
         }
 
+        @Override
         public synchronized void close() {
             if (this.closed) {
                 return;
@@ -634,6 +646,7 @@ public class LoggingBuilder {
             return fileName;
         }
 
+        @Override
         public void activateOptions() {
             if (fileName != null) {
                 try {
@@ -914,6 +927,7 @@ public class LoggingBuilder {
             return datePattern;
         }
 
+        @Override
         public void activateOptions() {
             super.activateOptions();
             if (datePattern != null && fileName != null) {
@@ -1134,6 +1148,7 @@ public class LoggingBuilder {
             SysLogger.warn("Using previously set target, System.out by default.");
         }
 
+        @Override
         public void activateOptions() {
             if (target.equals(SYSTEM_ERR)) {
                 setWriter(createWriter(System.err));
