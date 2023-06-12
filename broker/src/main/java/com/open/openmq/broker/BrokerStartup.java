@@ -5,16 +5,28 @@ import ch.qos.logback.classic.joran.JoranConfigurator;
 import com.open.openmq.common.BrokerConfig;
 import com.open.openmq.common.MQVersion;
 import com.open.openmq.common.MixAll;
+import com.open.openmq.common.constant.LoggerName;
+import com.open.openmq.logging.InternalLogger;
+import com.open.openmq.logging.InternalLoggerFactory;
+import com.open.openmq.remoting.common.RemotingUtil;
+import com.open.openmq.remoting.common.TlsMode;
 import com.open.openmq.remoting.netty.NettyClientConfig;
 import com.open.openmq.remoting.netty.NettyServerConfig;
+import com.open.openmq.remoting.netty.TlsSystemConfig;
 import com.open.openmq.remoting.protocol.RemotingCommand;
 import com.open.openmq.srvutil.ServerUtil;
+import com.open.openmq.store.config.BrokerRole;
 import com.open.openmq.store.config.MessageStoreConfig;
+import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.DefaultParser;
+import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
+import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import sun.tools.jar.CommandLine;
 
+import java.io.BufferedInputStream;
+import java.io.FileInputStream;
+import java.io.InputStream;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -60,7 +72,6 @@ public class BrokerStartup {
         System.setProperty(RemotingCommand.REMOTING_VERSION_KEY, Integer.toString(MQVersion.CURRENT_VERSION));
 
         try {
-            //PackageConflictDetect.detectFastjson();
             Options options = ServerUtil.buildCommandlineOptions(new Options());
             commandLine = ServerUtil.parseCmdLine("mqbroker", args, buildCommandlineOptions(options),
                     new DefaultParser());
@@ -68,22 +79,31 @@ public class BrokerStartup {
                 System.exit(-1);
             }
 
+            // 创建broker的配置类，例如brokerClusterName，brokerName默认是本机hostname、brokerId
             final BrokerConfig brokerConfig = new BrokerConfig();
+            // NettyServer配置类，broker作为服务端的配置类
             final NettyServerConfig nettyServerConfig = new NettyServerConfig();
+            // NettyClient配置类，broker作为客户端的配置类
             final NettyClientConfig nettyClientConfig = new NettyClientConfig();
 
-            nettyClientConfig.setUseTLS(Boolean.parseBoolean(System.getProperty(TLS_ENABLE,
+            nettyClientConfig.setUseTLS(Boolean.parseBoolean(System.getProperty(TlsSystemConfig.TLS_ENABLE,
                     String.valueOf(TlsSystemConfig.tlsMode == TlsMode.ENFORCING))));
             nettyServerConfig.setListenPort(10911);
 
             //消息存储的配置
             final MessageStoreConfig messageStoreConfig = new MessageStoreConfig();
 
+            // 如果是Master节点，则消息占用内存百分比为40(默认)
+            // 如果是Slave节点，则消息占用内存百分比为30
+            // slave节点 setAccessMessageInMemoryMaxRatio = messageStoreConfig.getAccessMessageInMemoryMaxRatio() - 10
             if (BrokerRole.SLAVE == messageStoreConfig.getBrokerRole()) {
                 int ratio = messageStoreConfig.getAccessMessageInMemoryMaxRatio() - 10;
                 messageStoreConfig.setAccessMessageInMemoryMaxRatio(ratio);
             }
 
+            /**
+             * 解析命令行中-c对应的broker.conf配置，并将配置设置到上面的配置类中
+             */
             if (commandLine.hasOption('c')) {
                 String file = commandLine.getOptionValue('c');
                 if (file != null) {
@@ -105,7 +125,7 @@ public class BrokerStartup {
             MixAll.properties2Object(ServerUtil.commandLine2Properties(commandLine), brokerConfig);
 
             if (null == brokerConfig.getRocketmqHome()) {
-                System.out.printf("Please set the %s variable in your environment to match the location of the RocketMQ installation", MixAll.ROCKETMQ_HOME_ENV);
+                System.out.printf("Please set the %s variable in your environment to match the location of the RocketMQ installation", MixAll.OPENMQ_HOME_ENV);
                 System.exit(-2);
             }
 
@@ -142,13 +162,11 @@ public class BrokerStartup {
                         break;
                 }
             }
-
             if (messageStoreConfig.isEnableDLegerCommitLog()) {
                 //不采用主从的配置，采用多副本Raft协议支持的集群模式
                 brokerConfig.setBrokerId(-1);
             }
-
-            //HA主从同步监听端口
+            //HA主从同步监听端口 设置haListenPort端口(remotingServer监听端口(10911)+1)，它用于Broker主从同步
             messageStoreConfig.setHaListenPort(nettyServerConfig.getListenPort() + 1);
             LoggerContext lc = (LoggerContext) LoggerFactory.getILoggerFactory();
             JoranConfigurator configurator = new JoranConfigurator();
@@ -203,7 +221,7 @@ public class BrokerStartup {
                 System.exit(-3);
             }
 
-            //JVM退出时 释放应用资源
+            //注册进程关闭的钩子函数,JVM退出时释放应用资源
             Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
                 private volatile boolean hasShutdown = false;
                 private AtomicInteger shutdownTimes = new AtomicInteger(0);
@@ -229,5 +247,61 @@ public class BrokerStartup {
             System.exit(-1);
         }
         return null;
+    }
+
+    private static void properties2SystemEnv(Properties properties) {
+        if (properties == null) {
+            return;
+        }
+        String rmqAddressServerDomain = properties.getProperty("rmqAddressServerDomain", MixAll.WS_DOMAIN_NAME);
+        String rmqAddressServerSubGroup = properties.getProperty("rmqAddressServerSubGroup", MixAll.WS_DOMAIN_SUBGROUP);
+        System.setProperty("rocketmq.namesrv.domain", rmqAddressServerDomain);
+        System.setProperty("rocketmq.namesrv.domain.subgroup", rmqAddressServerSubGroup);
+    }
+
+
+    private static Options buildCommandlineOptions(final Options options) {
+        Option opt = new Option("c", "configFile", true, "Broker config properties file");
+        opt.setRequired(false);
+        options.addOption(opt);
+
+        opt = new Option("p", "printConfigItem", false, "Print all config item");
+        opt.setRequired(false);
+        options.addOption(opt);
+
+        opt = new Option("m", "printImportantConfig", false, "Print important config item");
+        opt.setRequired(false);
+        options.addOption(opt);
+
+        return options;
+    }
+
+    public static class SystemConfigFileHelper {
+        private static final Logger LOGGER = LoggerFactory.getLogger(SystemConfigFileHelper.class);
+
+        private String file;
+
+        public SystemConfigFileHelper() {
+        }
+
+        public Properties loadConfig() throws Exception {
+            InputStream in = new BufferedInputStream(new FileInputStream(file));
+            Properties properties = new Properties();
+            properties.load(in);
+            in.close();
+            return properties;
+        }
+
+        public void update(Properties properties) throws Exception {
+            LOGGER.error("[SystemConfigFileHelper] update no thing.");
+        }
+
+        public void setFile(String file) {
+            this.file = file;
+        }
+
+        public String getFile() {
+            return file;
+        }
     }
 }
