@@ -48,9 +48,7 @@ public class BrokerStartup {
 
     public static BrokerController start(BrokerController controller) {
         try {
-
             controller.start();
-
             String tip = "The broker[" + controller.getBrokerConfig().getBrokerName() + ", "
                     + controller.getBrokerAddr() + "] boot success. serializeType=" + RemotingCommand.getSerializeTypeConfigInThisServer();
 
