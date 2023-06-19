@@ -16,10 +16,36 @@ public class SendResult {
     private String transactionId;
     private String offsetMsgId;
     private String regionId;
+
+    public String getTransactionId() {
+        return transactionId;
+    }
+
+    public void setTransactionId(String transactionId) {
+        this.transactionId = transactionId;
+    }
+
+    public boolean isTraceOn() {
+        return traceOn;
+    }
+
+    public void setTraceOn(boolean traceOn) {
+        this.traceOn = traceOn;
+    }
+
     private boolean traceOn = true;
     private byte[] rawRespBody;
 
     public SendResult() {
+    }
+
+    public SendResult(SendStatus sendStatus, String msgId, String offsetMsgId, MessageQueue messageQueue,
+                      long queueOffset) {
+        this.sendStatus = sendStatus;
+        this.msgId = msgId;
+        this.offsetMsgId = offsetMsgId;
+        this.messageQueue = messageQueue;
+        this.queueOffset = queueOffset;
     }
 
 
@@ -29,5 +55,13 @@ public class SendResult {
 
     public void setSendStatus(SendStatus sendStatus) {
         this.sendStatus = sendStatus;
+    }
+
+    public String getRegionId() {
+        return regionId;
+    }
+
+    public void setRegionId(String regionId) {
+        this.regionId = regionId;
     }
 }

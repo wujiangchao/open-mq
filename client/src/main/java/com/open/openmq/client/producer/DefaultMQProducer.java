@@ -12,6 +12,7 @@ import com.open.openmq.common.message.Message;
 import com.open.openmq.common.message.MessageExt;
 import com.open.openmq.common.message.MessageQueue;
 import com.open.openmq.common.protocol.ResponseCode;
+import com.open.openmq.common.topic.TopicValidator;
 import com.open.openmq.logging.InternalLogger;
 import com.open.openmq.remoting.RPCHook;
 import com.open.openmq.remoting.exception.RemotingException;
@@ -37,6 +38,8 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
     protected final transient DefaultMQProducerImpl defaultMQProducerImpl;
 
     private final InternalLogger log = ClientLogger.getLog();
+
+    private String createTopicKey = TopicValidator.AUTO_CREATE_TOPIC_KEY_TOPIC;
 
 
     private String producerGroup;
@@ -90,7 +93,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
     /**
      * Maximum allowed message body size in bytes.
      */
-    private int maxMessageSize = 1024 * 1024 * 4; // 4M
+    private int maxMessageSize = 1024 * 1024 * 4;
 
 
     /**
@@ -177,7 +180,8 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
      */
     @Override
     public SendResult send(Message msg) throws MQClientException, RemotingException, MQBrokerException, InterruptedException {
-        return null;
+        msg.setTopic(withNamespace(msg.getTopic()));
+        return this.defaultMQProducerImpl.send(msg);
     }
 
     @Override
@@ -424,5 +428,13 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
 
     public Set<Integer> getRetryResponseCodes() {
         return retryResponseCodes;
+    }
+
+    public String getCreateTopicKey() {
+        return createTopicKey;
+    }
+
+    public void setCreateTopicKey(String createTopicKey) {
+        this.createTopicKey = createTopicKey;
     }
 }
