@@ -10,10 +10,12 @@ import com.open.openmq.client.exception.MQBrokerException;
 import com.open.openmq.client.exception.MQClientException;
 import com.open.openmq.client.impl.consumer.DefaultMQPushConsumerImpl;
 import com.open.openmq.client.log.ClientLogger;
-import com.open.openmq.client.store.OffsetStore;
+import com.open.openmq.client.consumer.store.OffsetStore;
+import com.open.openmq.client.trace.AsyncTraceDispatcher;
 import com.open.openmq.client.trace.TraceDispatcher;
 import com.open.openmq.common.MixAll;
 import com.open.openmq.common.UtilAll;
+import com.open.openmq.common.consumer.ConsumeFromWhere;
 import com.open.openmq.common.message.MessageExt;
 import com.open.openmq.common.message.MessageQueue;
 import com.open.openmq.common.protocol.NamespaceUtil;
@@ -36,6 +38,9 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
     private final InternalLogger log = ClientLogger.getLog();
 
     protected final transient DefaultMQPushConsumerImpl defaultMQPushConsumerImpl;
+
+    private String instanceName = System.getProperty("rocketmq.client.name", "DEFAULT");
+
 
     private String consumerGroup;
 
@@ -159,6 +164,30 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
      */
     private long consumeTimeout = 15;
 
+    /**
+     * Interface of asynchronous transfer data
+     */
+    private TraceDispatcher traceDispatcher = null;
+
+    /**
+     * Maximum time to await message consuming when shutdown consumer, 0 indicates no await.
+     */
+    private long awaitTerminationMillisWhenShutdown = 0;
+
+    /**
+     * Flow control threshold on queue level, each message queue will cache at most 1000 messages by default,
+     * Consider the {@code pullBatchSize}, the instantaneous value may exceed the limit
+     */
+    private int pullThresholdForQueue = 1000;
+
+    /**
+     * Limit the cached message size on queue level, each message queue will cache at most 100 MiB messages by default,
+     * Consider the {@code pullBatchSize}, the instantaneous value may exceed the limit
+     *
+     * <p>
+     * The size(MB) of a message only measured by message body, so it's not accurate
+     */
+    private int pullThresholdSizeForQueue = 100;
 
 
     /**
@@ -184,7 +213,7 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
      * @param consumerGroup Consumer group.
      */
     public DefaultMQPushConsumer(final String namespace, final String consumerGroup) {
-            this(namespace, consumerGroup, null, new AllocateMessageQeueAveragely());
+            this(namespace, consumerGroup, null, new AllocateMessageQueueAveragely());
     }
 
 
@@ -291,10 +320,10 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
         if (enableMsgTrace) {
             try {
                 AsyncTraceDispatcher dispatcher = new AsyncTraceDispatcher(consumerGroup, TraceDispatcher.Type.CONSUME, customizedTraceTopic, rpcHook);
-                dispatcher.setHostConsumer(this.getDefaultMQPushConsumerImpl());
-                traceDispatcher = dispatcher;
-                this.getDefaultMQPushConsumerImpl().registerConsumeMessageHook(
-                        new ConsumeMessageTraceHookImpl(traceDispatcher));
+//                dispatcher.setHostConsumer(this.getDefaultMQPushConsumerImpl());
+//                traceDispatcher = dispatcher;
+//                this.getDefaultMQPushConsumerImpl().registerConsumeMessageHook(
+//                        new ConsumeMessageTraceHookImpl(traceDispatcher));
             } catch (Throwable e) {
                 log.error("system mqtrace hook init failed ,maybe can't send msg trace data");
             }
@@ -336,13 +365,13 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
     public void start() throws MQClientException {
         setConsumerGroup(NamespaceUtil.wrapNamespace(this.getNamespace(), this.consumerGroup));
         this.defaultMQPushConsumerImpl.start();
-        if (null != traceDispatcher) {
-            try {
-                traceDispatcher.start(this.getNamesrvAddr(), this.getAccessChannel());
-            } catch (MQClientException e) {
-                log.warn("trace dispatcher start failed ", e);
-            }
-        }
+//        if (null != traceDispatcher) {
+//            try {
+//                traceDispatcher.start(this.getNamesrvAddr(), this.getAccessChannel());
+//            } catch (MQClientException e) {
+//                log.warn("trace dispatcher start failed ", e);
+//            }
+//        }
     }
 
     @Override
@@ -350,16 +379,27 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
 
     }
 
+    /**
+     * Register a callback to execute on message arrival for concurrent consuming.
+     *
+     * @param messageListener message handling callback.
+     */
     @Override
     public void registerMessageListener(MessageListenerConcurrently messageListener) {
-
+        this.messageListener = messageListener;
+        this.defaultMQPushConsumerImpl.registerMessageListener(messageListener);
     }
 
+    /**
+     * Register a callback to execute on message arrival for orderly consuming.
+     *
+     * @param messageListener message handling callback.
+     */
     @Override
     public void registerMessageListener(MessageListenerOrderly messageListener) {
-
+        this.messageListener = messageListener;
+        this.defaultMQPushConsumerImpl.registerMessageListener(messageListener);
     }
-
     @Override
     public void subscribe(String topic, String subExpression) throws MQClientException {
 
@@ -390,6 +430,12 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
 
     }
 
+    public void changeInstanceNameToPID() {
+        if (this.instanceName.equals("DEFAULT")) {
+            this.instanceName = UtilAll.getPid() + "#" + System.nanoTime();
+        }
+    }
+
     public String getConsumerGroup() {
         return consumerGroup;
     }
@@ -404,5 +450,183 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
 
     public void setMessageModel(MessageModel messageModel) {
         this.messageModel = messageModel;
+    }
+
+    public DefaultMQPushConsumerImpl getDefaultMQPushConsumerImpl() {
+        return defaultMQPushConsumerImpl;
+    }
+
+    public int getConsumeThreadMin() {
+        return consumeThreadMin;
+    }
+
+    public void setConsumeThreadMin(int consumeThreadMin) {
+        this.consumeThreadMin = consumeThreadMin;
+    }
+
+    public int getConsumeThreadMax() {
+        return consumeThreadMax;
+    }
+
+    public void setConsumeThreadMax(int consumeThreadMax) {
+        this.consumeThreadMax = consumeThreadMax;
+    }
+
+    public AllocateMessageQueueStrategy getAllocateMessageQueueStrategy() {
+        return allocateMessageQueueStrategy;
+    }
+
+    public void setAllocateMessageQueueStrategy(AllocateMessageQueueStrategy allocateMessageQueueStrategy) {
+        this.allocateMessageQueueStrategy = allocateMessageQueueStrategy;
+    }
+
+    public Map<String, String> getSubscription() {
+        return subscription;
+    }
+
+    public void setSubscription(Map<String, String> subscription) {
+        this.subscription = subscription;
+    }
+
+    public InternalLogger getLog() {
+        return log;
+    }
+
+    @Override
+    public String getInstanceName() {
+        return instanceName;
+    }
+
+    @Override
+    public void setInstanceName(String instanceName) {
+        this.instanceName = instanceName;
+    }
+
+    public String getConsumeTimestamp() {
+        return consumeTimestamp;
+    }
+
+    public void setConsumeTimestamp(String consumeTimestamp) {
+        this.consumeTimestamp = consumeTimestamp;
+    }
+
+    public int getConsumeConcurrentlyMaxSpan() {
+        return consumeConcurrentlyMaxSpan;
+    }
+
+    public void setConsumeConcurrentlyMaxSpan(int consumeConcurrentlyMaxSpan) {
+        this.consumeConcurrentlyMaxSpan = consumeConcurrentlyMaxSpan;
+    }
+
+    public long getPullInterval() {
+        return pullInterval;
+    }
+
+    public void setPullInterval(long pullInterval) {
+        this.pullInterval = pullInterval;
+    }
+
+    public int getConsumeMessageBatchMaxSize() {
+        return consumeMessageBatchMaxSize;
+    }
+
+    public void setConsumeMessageBatchMaxSize(int consumeMessageBatchMaxSize) {
+        this.consumeMessageBatchMaxSize = consumeMessageBatchMaxSize;
+    }
+
+    public int getPullBatchSize() {
+        return pullBatchSize;
+    }
+
+    public void setPullBatchSize(int pullBatchSize) {
+        this.pullBatchSize = pullBatchSize;
+    }
+
+    public int getMaxReconsumeTimes() {
+        return maxReconsumeTimes;
+    }
+
+    public void setMaxReconsumeTimes(int maxReconsumeTimes) {
+        this.maxReconsumeTimes = maxReconsumeTimes;
+    }
+
+    public long getSuspendCurrentQueueTimeMillis() {
+        return suspendCurrentQueueTimeMillis;
+    }
+
+    public void setSuspendCurrentQueueTimeMillis(long suspendCurrentQueueTimeMillis) {
+        this.suspendCurrentQueueTimeMillis = suspendCurrentQueueTimeMillis;
+    }
+
+    public long getConsumeTimeout() {
+        return consumeTimeout;
+    }
+
+    public void setConsumeTimeout(long consumeTimeout) {
+        this.consumeTimeout = consumeTimeout;
+    }
+
+    public ConsumeFromWhere getConsumeFromWhere() {
+        return consumeFromWhere;
+    }
+
+    public void setConsumeFromWhere(ConsumeFromWhere consumeFromWhere) {
+        this.consumeFromWhere = consumeFromWhere;
+    }
+
+    public MessageListener getMessageListener() {
+        return messageListener;
+    }
+
+    public void setMessageListener(MessageListener messageListener) {
+        this.messageListener = messageListener;
+    }
+
+    public OffsetStore getOffsetStore() {
+        return offsetStore;
+    }
+
+    public void setOffsetStore(OffsetStore offsetStore) {
+        this.offsetStore = offsetStore;
+    }
+
+    public boolean isPostSubscriptionWhenPull() {
+        return postSubscriptionWhenPull;
+    }
+
+    public void setPostSubscriptionWhenPull(boolean postSubscriptionWhenPull) {
+        this.postSubscriptionWhenPull = postSubscriptionWhenPull;
+    }
+
+    public TraceDispatcher getTraceDispatcher() {
+        return traceDispatcher;
+    }
+
+    public void setTraceDispatcher(TraceDispatcher traceDispatcher) {
+        this.traceDispatcher = traceDispatcher;
+    }
+
+    public long getAwaitTerminationMillisWhenShutdown() {
+        return awaitTerminationMillisWhenShutdown;
+    }
+
+    public void setAwaitTerminationMillisWhenShutdown(long awaitTerminationMillisWhenShutdown) {
+        this.awaitTerminationMillisWhenShutdown = awaitTerminationMillisWhenShutdown;
+    }
+
+    public int getPullThresholdForQueue() {
+        return pullThresholdForQueue;
+    }
+
+    public void setPullThresholdForQueue(int pullThresholdForQueue) {
+        this.pullThresholdForQueue = pullThresholdForQueue;
+    }
+
+    public int getPullThresholdSizeForQueue() {
+        return pullThresholdSizeForQueue;
+    }
+
+    public void setPullThresholdSizeForQueue(int pullThresholdSizeForQueue) {
+        this.pullThresholdSizeForQueue = pullThresholdSizeForQueue;
     }
 }
