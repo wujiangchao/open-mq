@@ -1,26 +1,32 @@
 package com.open.openmq.namesrv;
 
+import ch.qos.logback.classic.LoggerContext;
+import ch.qos.logback.classic.joran.JoranConfigurator;
 import com.open.openmq.common.ControllerConfig;
 import com.open.openmq.common.MQVersion;
 import com.open.openmq.common.MixAll;
+import com.open.openmq.common.constant.LoggerName;
 import com.open.openmq.common.namesrv.NamesrvConfig;
+import com.open.openmq.logging.InternalLogger;
+import com.open.openmq.logging.InternalLoggerFactory;
 import com.open.openmq.remoting.netty.NettyClientConfig;
 import com.open.openmq.remoting.netty.NettyServerConfig;
 import com.open.openmq.remoting.protocol.RemotingCommand;
 import com.open.openmq.srvutil.ServerUtil;
+import com.open.openmq.srvutil.ShutdownHookThread;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.PosixParser;
-import org.apache.rocketmq.logging.ch.qos.logback.classic.LoggerContext;
-import org.apache.rocketmq.logging.ch.qos.logback.classic.joran.JoranConfigurator;
-import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
+import org.slf4j.LoggerFactory;
+
 
 import java.io.BufferedInputStream;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Properties;
+import java.util.concurrent.Callable;
 
 /**
  * @Description TODO
@@ -28,6 +34,9 @@ import java.util.Properties;
  * @Author jack wu
  */
 public class NamesrvStartup {
+
+    private static InternalLogger log;
+
     /**
      * 用于保存、读取配置文件
      * 临时存储全部的配置k-v，包含-c指定的启动文件和-p启动的变量
@@ -120,8 +129,8 @@ public class NamesrvStartup {
         //1、commandLine2Properties   2、properties2Object
         MixAll.properties2Object(ServerUtil.commandLine2Properties(commandLine), namesrvConfig);
 
-        if (null == namesrvConfig.getRocketmqHome()) {
-            System.out.printf("Please set the %s variable in your environment to match the location of the RocketMQ installation%n", MixAll.ROCKETMQ_HOME_ENV);
+        if (null == namesrvConfig.getOpenmqHome()) {
+            System.out.printf("Please set the %s variable in your environment to match the location of the OpenMQ installation%n", MixAll.OPENMQ_HOME_ENV);
             System.exit(-2);
         }
 
@@ -133,20 +142,18 @@ public class NamesrvStartup {
         JoranConfigurator configurator = new JoranConfigurator();
         configurator.setContext(lc);
         lc.reset();
-        configurator.doConfigure(namesrvConfig.getRocketmqHome() + "/conf/logback_namesrv.xml");
+        configurator.doConfigure(namesrvConfig.getOpenmqHome() + "/conf/logback_namesrv.xml");
 
         log = InternalLoggerFactory.getLogger(LoggerName.NAMESRV_LOGGER_NAME);
 
         MixAll.printObjectProperties(log, namesrvConfig);
         MixAll.printObjectProperties(log, nettyServerConfig);
-
-
     }
 
     public static void controllerManagerMain() {
         try {
             if (namesrvConfig.isEnableControllerInNamesrv()) {
-                createAndStartControllerManager();
+                //createAndStartControllerManager();
             }
         } catch (Throwable e) {
             e.printStackTrace();
@@ -154,21 +161,21 @@ public class NamesrvStartup {
         }
     }
 
-    public static void createAndStartControllerManager() throws Exception {
-        ControllerManager controllerManager = createControllerManager();
-        start(controllerManager);
-        String tip = "The ControllerManager boot success. serializeType=" + RemotingCommand.getSerializeTypeConfigInThisServer();
-        log.info(tip);
-        System.out.printf("%s%n", tip);
-    }
+//    public static void createAndStartControllerManager() throws Exception {
+//        ControllerManager controllerManager = createControllerManager();
+//        start(controllerManager);
+//        String tip = "The ControllerManager boot success. serializeType=" + RemotingCommand.getSerializeTypeConfigInThisServer();
+//        log.info(tip);
+//        System.out.printf("%s%n", tip);
+//    }
 
-    public static ControllerManager createControllerManager() throws Exception {
-        NettyServerConfig controllerNettyServerConfig = (NettyServerConfig) nettyServerConfig.clone();
-        ControllerManager controllerManager = new ControllerManager(controllerConfig, controllerNettyServerConfig, nettyClientConfig);
-        // remember all configs to prevent discard
-        controllerManager.getConfiguration().registerConfig(properties);
-        return controllerManager;
-    }
+//    public static ControllerManager createControllerManager() throws Exception {
+//        NettyServerConfig controllerNettyServerConfig = (NettyServerConfig) nettyServerConfig.clone();
+//        ControllerManager controllerManager = new ControllerManager(controllerConfig, controllerNettyServerConfig, nettyClientConfig);
+//        // remember all configs to prevent discard
+//        controllerManager.getConfiguration().registerConfig(properties);
+//        return controllerManager;
+//    }
 
     public static void createAndStartNamesrvController() throws Exception {
         NamesrvController controller = createNamesrvController();
@@ -177,6 +184,56 @@ public class NamesrvStartup {
         log.info(tip);
         System.out.printf("%s%n", tip);
     }
+
+    public static NamesrvController createNamesrvController() {
+        final NamesrvController controller = new NamesrvController(namesrvConfig, nettyServerConfig, nettyClientConfig);
+        // remember all configs to prevent discard
+        controller.getConfiguration().registerConfig(properties);
+        return controller;
+    }
+
+    public static NamesrvController start(final NamesrvController controller) throws Exception {
+
+        if (null == controller) {
+            throw new IllegalArgumentException("NamesrvController is null");
+        }
+
+        boolean initResult = controller.initialize();
+        if (!initResult) {
+            controller.shutdown();
+            System.exit(-3);
+        }
+
+        Runtime.getRuntime().addShutdownHook(new ShutdownHookThread(log, (Callable<Void>) () -> {
+            controller.shutdown();
+            return null;
+        }));
+
+        controller.start();
+
+        return controller;
+    }
+
+//    public static ControllerManager start(final ControllerManager controllerManager) throws Exception {
+//        if (null == controllerManager) {
+//            throw new IllegalArgumentException("ControllerManager is null");
+//        }
+//
+//        boolean initResult = controllerManager.initialize();
+//        if (!initResult) {
+//            controllerManager.shutdown();
+//            System.exit(-3);
+//        }
+//
+//        Runtime.getRuntime().addShutdownHook(new ShutdownHookThread(log, (Callable<Void>) () -> {
+//            controllerManager.shutdown();
+//            return null;
+//        }));
+//
+//        controllerManager.start();
+//
+//        return controllerManager;
+//    }
 
     public static Options buildCommandlineOptions(final Options options) {
         Option opt = new Option("c", "configFile", true, "Name server config properties file");

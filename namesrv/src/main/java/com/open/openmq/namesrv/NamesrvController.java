@@ -1,26 +1,287 @@
 package com.open.openmq.namesrv;
 
+import com.open.openmq.common.Configuration;
+import com.open.openmq.common.ThreadFactoryImpl;
+import com.open.openmq.common.constant.LoggerName;
+import com.open.openmq.common.future.FutureTaskExt;
 import com.open.openmq.common.namesrv.NamesrvConfig;
+import com.open.openmq.common.protocol.RequestCode;
+import com.open.openmq.logging.InternalLogger;
+import com.open.openmq.logging.InternalLoggerFactory;
+import com.open.openmq.namesrv.kvconfig.KVConfigManager;
+import com.open.openmq.namesrv.processor.ClientRequestProcessor;
+import com.open.openmq.namesrv.processor.ClusterTestRequestProcessor;
+import com.open.openmq.namesrv.processor.DefaultRequestProcessor;
+import com.open.openmq.namesrv.route.ZoneRouteRPCHook;
+import com.open.openmq.namesrv.routeinfo.BrokerHousekeepingService;
 import com.open.openmq.namesrv.routeinfo.RouteInfoManager;
+import com.open.openmq.remoting.RemotingClient;
+import com.open.openmq.remoting.RemotingServer;
+import com.open.openmq.remoting.common.RemotingUtil;
+import com.open.openmq.remoting.common.TlsMode;
 import com.open.openmq.remoting.netty.NettyClientConfig;
+import com.open.openmq.remoting.netty.NettyRemotingClient;
+import com.open.openmq.remoting.netty.NettyRemotingServer;
 import com.open.openmq.remoting.netty.NettyServerConfig;
+import com.open.openmq.remoting.netty.RequestTask;
+import com.open.openmq.remoting.netty.TlsSystemConfig;
+import com.open.openmq.srvutil.FileWatchService;
+import org.apache.commons.lang3.concurrent.BasicThreadFactory;
+
+import java.util.Collections;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RunnableFuture;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 /**
- * @Description nameserver主要控制类
+ * @Description nameserver主要控制类,用来控制管理 nameserver
  * @Date 2023/2/21 22:31
  * @Author jack wu
  */
 public class NamesrvController {
 
+    private static final InternalLogger LOGGER = InternalLoggerFactory.getLogger(LoggerName.NAMESRV_LOGGER_NAME);
+    private static final InternalLogger WATER_MARK_LOG = InternalLoggerFactory.getLogger(LoggerName.NAMESRV_WATER_MARK_LOGGER_NAME);
+
     private final NamesrvConfig namesrvConfig;
+
     private final NettyServerConfig nettyServerConfig;
     private final NettyClientConfig nettyClientConfig;
+
+    private final ScheduledExecutorService scheduledExecutorService = new ScheduledThreadPoolExecutor(1,
+            new BasicThreadFactory.Builder().namingPattern("NSScheduledThread").daemon(true).build());
+
+    private final ScheduledExecutorService scanExecutorService = new ScheduledThreadPoolExecutor(1,
+            new BasicThreadFactory.Builder().namingPattern("NSScanScheduledThread").daemon(true).build());
 
     private final KVConfigManager kvConfigManager;
     private final RouteInfoManager routeInfoManager;
 
+    private RemotingClient remotingClient;
+    private RemotingServer remotingServer;
+
+    private final BrokerHousekeepingService brokerHousekeepingService;
+
+    private ExecutorService defaultExecutor;
+    private ExecutorService clientRequestExecutor;
+
+    private BlockingQueue<Runnable> defaultThreadPoolQueue;
+    private BlockingQueue<Runnable> clientRequestThreadPoolQueue;
+
+    private final Configuration configuration;
+    private FileWatchService fileWatchService;
+
+    public NamesrvController(NamesrvConfig namesrvConfig, NettyServerConfig nettyServerConfig) {
+        this(namesrvConfig, nettyServerConfig, new NettyClientConfig());
+    }
+
+    public NamesrvController(NamesrvConfig namesrvConfig, NettyServerConfig nettyServerConfig, NettyClientConfig nettyClientConfig) {
+        this.namesrvConfig = namesrvConfig;
+        this.nettyServerConfig = nettyServerConfig;
+        this.nettyClientConfig = nettyClientConfig;
+        this.kvConfigManager = new KVConfigManager(this);
+        this.brokerHousekeepingService = new BrokerHousekeepingService(this);
+        this.routeInfoManager = new RouteInfoManager(namesrvConfig, this);
+        this.configuration = new Configuration(LOGGER, this.namesrvConfig, this.nettyServerConfig);
+        this.configuration.setStorePathFromConfig(this.namesrvConfig, "configStorePath");
+    }
+
+    /**
+     * 初始化nameserver控制器
+     * @return
+     */
+    public boolean initialize() {
+        // kvConfig配置加载
+        loadConfig();
+        // 初始化Netty的server、client
+        initiateNetworkComponents();
+        // 初始化defaultExecutor、clientRequestExecutor线程池
+        initiateThreadExecutors();
+        // 路由注册，仅支持临时路由
+        registerProcessor();
+        // 启动定时任务：5s扫描brokerLiveTable，10min打印日志
+        startScheduleService();
+        // 初始化SSL上下文
+        initiateSslContext();
+        // 注册RPC钩子
+        initiateRpcHooks();
+        return true;
+    }
+
+    private void initiateSslContext() {
+        if (TlsSystemConfig.tlsMode == TlsMode.DISABLED) {
+            return;
+        }
+
+        String[] watchFiles = {TlsSystemConfig.tlsServerCertPath, TlsSystemConfig.tlsServerKeyPath, TlsSystemConfig.tlsServerTrustCertPath};
+
+        FileWatchService.Listener listener = new FileWatchService.Listener() {
+            boolean certChanged, keyChanged = false;
+
+            @Override
+            public void onChanged(String path) {
+                if (path.equals(TlsSystemConfig.tlsServerTrustCertPath)) {
+                    LOGGER.info("The trust certificate changed, reload the ssl context");
+                    ((NettyRemotingServer) remotingServer).loadSslContext();
+                }
+                if (path.equals(TlsSystemConfig.tlsServerCertPath)) {
+                    certChanged = true;
+                }
+                if (path.equals(TlsSystemConfig.tlsServerKeyPath)) {
+                    keyChanged = true;
+                }
+                if (certChanged && keyChanged) {
+                    LOGGER.info("The certificate and private key changed, reload the ssl context");
+                    certChanged = keyChanged = false;
+                    ((NettyRemotingServer) remotingServer).loadSslContext();
+                }
+            }
+        };
+
+        try {
+            fileWatchService = new FileWatchService(watchFiles, listener);
+        } catch (Exception e) {
+            LOGGER.warn("FileWatchService created error, can't load the certificate dynamically");
+        }
+    }
+
+    private void initiateRpcHooks() {
+        this.remotingServer.registerRPCHook(new ZoneRouteRPCHook());
+    }
+
+    private void printWaterMark() {
+        WATER_MARK_LOG.info("[WATERMARK] ClientQueueSize:{} ClientQueueSlowTime:{} " + "DefaultQueueSize:{} DefaultQueueSlowTime:{}", this.clientRequestThreadPoolQueue.size(), headSlowTimeMills(this.clientRequestThreadPoolQueue), this.defaultThreadPoolQueue.size(), headSlowTimeMills(this.defaultThreadPoolQueue));
+    }
+
+    private void registerProcessor() {
+        if (namesrvConfig.isClusterTest()) {
+            this.remotingServer.registerDefaultProcessor(new ClusterTestRequestProcessor(this, namesrvConfig.getProductEnvName()), this.defaultExecutor);
+        } else {
+            // Support get route info only temporarily
+            ClientRequestProcessor clientRequestProcessor = new ClientRequestProcessor(this);
+            this.remotingServer.registerProcessor(RequestCode.GET_ROUTEINFO_BY_TOPIC, clientRequestProcessor, this.clientRequestExecutor);
+
+            this.remotingServer.registerDefaultProcessor(new DefaultRequestProcessor(this), this.defaultExecutor);
+        }
+    }
+
+
+    private void initiateThreadExecutors() {
+        this.defaultThreadPoolQueue = new LinkedBlockingQueue<>(this.namesrvConfig.getDefaultThreadPoolQueueCapacity());
+        this.defaultExecutor = new ThreadPoolExecutor(this.namesrvConfig.getDefaultThreadPoolNums(), this.namesrvConfig.getDefaultThreadPoolNums(), 1000 * 60, TimeUnit.MILLISECONDS, this.defaultThreadPoolQueue, new ThreadFactoryImpl("RemotingExecutorThread_")) {
+            @Override
+            protected <T> RunnableFuture<T> newTaskFor(final Runnable runnable, final T value) {
+                return new FutureTaskExt<>(runnable, value);
+            }
+        };
+
+        this.clientRequestThreadPoolQueue = new LinkedBlockingQueue<>(this.namesrvConfig.getClientRequestThreadPoolQueueCapacity());
+        this.clientRequestExecutor = new ThreadPoolExecutor(this.namesrvConfig.getClientRequestThreadPoolNums(), this.namesrvConfig.getClientRequestThreadPoolNums(), 1000 * 60, TimeUnit.MILLISECONDS, this.clientRequestThreadPoolQueue, new ThreadFactoryImpl("ClientRequestExecutorThread_")) {
+            @Override
+            protected <T> RunnableFuture<T> newTaskFor(final Runnable runnable, final T value) {
+                return new FutureTaskExt<>(runnable, value);
+            }
+        };
+    }
+
+
+    private void initiateNetworkComponents() {
+        this.remotingServer = new NettyRemotingServer(this.nettyServerConfig, this.brokerHousekeepingService);
+        this.remotingClient = new NettyRemotingClient(this.nettyClientConfig);
+    }
+
+    private void loadConfig() {
+        this.kvConfigManager.load();
+    }
+
+
+    public void shutdown() {
+        this.remotingClient.shutdown();
+        this.remotingServer.shutdown();
+        this.defaultExecutor.shutdown();
+        this.clientRequestExecutor.shutdown();
+        this.scheduledExecutorService.shutdown();
+        this.scanExecutorService.shutdown();
+        this.routeInfoManager.shutdown();
+
+        if (this.fileWatchService != null) {
+            this.fileWatchService.shutdown();
+        }
+    }
+
+    public void start() throws Exception {
+        this.remotingServer.start();
+
+        // In test scenarios where it is up to OS to pick up an available port, set the listening port back to config
+        if (0 == nettyServerConfig.getListenPort()) {
+            nettyServerConfig.setListenPort(this.remotingServer.localListenPort());
+        }
+
+        this.remotingClient.updateNameServerAddressList(Collections.singletonList(RemotingUtil.getLocalAddress()
+                + ":" + nettyServerConfig.getListenPort()));
+        this.remotingClient.start();
+
+        if (this.fileWatchService != null) {
+            this.fileWatchService.start();
+        }
+
+        this.routeInfoManager.start();
+    }
+
+    private void startScheduleService() {
+        //定时扫描不活跃的broker
+        this.scanExecutorService.scheduleAtFixedRate(NamesrvController.this.routeInfoManager::scanNotActiveBroker,
+                5, this.namesrvConfig.getScanNotActiveBrokerInterval(), TimeUnit.MILLISECONDS);
+
+        //定时打印configTable信息
+        this.scheduledExecutorService.scheduleAtFixedRate(NamesrvController.this.kvConfigManager::printAllPeriodically,
+                1, 10, TimeUnit.MINUTES);
+
+        this.scheduledExecutorService.scheduleAtFixedRate(() -> {
+            try {
+                NamesrvController.this.printWaterMark();
+            } catch (Throwable e) {
+                LOGGER.error("printWaterMark error.", e);
+            }
+        }, 10, 1, TimeUnit.SECONDS);
+    }
+
+    private long headSlowTimeMills(BlockingQueue<Runnable> q) {
+        long slowTimeMills = 0;
+        final Runnable firstRunnable = q.peek();
+
+        if (firstRunnable instanceof FutureTaskExt) {
+            final Runnable inner = ((FutureTaskExt<?>) firstRunnable).getRunnable();
+            if (inner instanceof RequestTask) {
+                slowTimeMills = System.currentTimeMillis() - ((RequestTask) inner).getCreateTimestamp();
+            }
+        }
+
+        if (slowTimeMills < 0) {
+            slowTimeMills = 0;
+        }
+
+        return slowTimeMills;
+    }
 
     public RouteInfoManager getRouteInfoManager() {
         return routeInfoManager;
+    }
+
+    public Configuration getConfiguration() {
+        return configuration;
+    }
+
+    public NamesrvConfig getNamesrvConfig() {
+        return namesrvConfig;
+    }
+
+    public KVConfigManager getKvConfigManager() {
+        return kvConfigManager;
     }
 }
