@@ -2,20 +2,38 @@ package com.open.openmq.broker.processor;
 
 import com.open.openmq.broker.BrokerController;
 import com.open.openmq.broker.client.ConsumerGroupInfo;
+import com.open.openmq.broker.filter.ConsumerFilterManager;
+import com.open.openmq.broker.plugin.PullMessageResultHandler;
 import com.open.openmq.common.MixAll;
 import com.open.openmq.common.TopicConfig;
+import com.open.openmq.common.constant.LoggerName;
+import com.open.openmq.common.constant.PermName;
 import com.open.openmq.common.filter.ExpressionType;
+import com.open.openmq.common.filter.FilterAPI;
+import com.open.openmq.common.protocol.ForbiddenType;
 import com.open.openmq.common.protocol.RequestCode;
 import com.open.openmq.common.protocol.ResponseCode;
 import com.open.openmq.common.protocol.header.PullMessageRequestHeader;
 import com.open.openmq.common.protocol.header.PullMessageResponseHeader;
 import com.open.openmq.common.protocol.heartbeat.MessageModel;
 import com.open.openmq.common.protocol.heartbeat.SubscriptionData;
+import com.open.openmq.common.rpc.RpcRequest;
+import com.open.openmq.common.rpc.RpcResponse;
+import com.open.openmq.common.statictopic.LogicQueueMappingItem;
+import com.open.openmq.common.statictopic.TopicQueueMappingContext;
+import com.open.openmq.common.statictopic.TopicQueueMappingDetail;
+import com.open.openmq.common.subscription.SubscriptionGroupConfig;
+import com.open.openmq.common.sysflag.PullSysFlag;
+import com.open.openmq.logging.InternalLogger;
+import com.open.openmq.logging.InternalLoggerFactory;
+import com.open.openmq.remoting.common.RemotingHelper;
 import com.open.openmq.remoting.exception.RemotingCommandException;
 import com.open.openmq.remoting.netty.NettyRequestProcessor;
 import com.open.openmq.remoting.protocol.RemotingCommand;
 import com.open.openmq.store.GetMessageResult;
 import com.open.openmq.store.GetMessageStatus;
+import com.open.openmq.store.MessageFilter;
+import com.open.openmq.store.config.BrokerRole;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 
@@ -27,6 +45,12 @@ import io.netty.channel.ChannelHandlerContext;
 public class PullMessageProcessor implements NettyRequestProcessor {
     private static final InternalLogger LOGGER = InternalLoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
     private final BrokerController brokerController;
+    private PullMessageResultHandler pullMessageResultHandler;
+
+
+    public PullMessageProcessor(BrokerController brokerController) {
+        this.brokerController = brokerController;
+    }
 
     @Override
     public RemotingCommand processRequest(ChannelHandlerContext ctx, RemotingCommand request) throws Exception {
@@ -63,7 +87,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
                 this.brokerController.getSubscriptionGroupManager().findSubscriptionGroupConfig(requestHeader.getConsumerGroup());
         if (null == subscriptionGroupConfig) {
             response.setCode(ResponseCode.SUBSCRIPTION_GROUP_NOT_EXIST);
-            response.setRemark(String.format("subscription group [%s] does not exist, %s", requestHeader.getConsumerGroup(), FAQUrl.suggestTodo(FAQUrl.SUBSCRIPTION_GROUP_NOT_EXIST)));
+            response.setRemark(String.format("subscription group [%s] does not exist", requestHeader.getConsumerGroup()));
             return response;
         }
 
@@ -84,7 +108,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
         if (null == topicConfig) {
             LOGGER.error("the topic {} not exist, consumer: {}", requestHeader.getTopic(), RemotingHelper.parseChannelRemoteAddr(channel));
             response.setCode(ResponseCode.TOPIC_NOT_EXIST);
-            response.setRemark(String.format("topic[%s] not exist, apply first please! %s", requestHeader.getTopic(), FAQUrl.suggestTodo(FAQUrl.APPLY_TOPIC_URL)));
+            response.setRemark(String.format("topic[%s] not exist, apply first please!", requestHeader.getTopic()));
             return response;
         }
 
@@ -98,12 +122,12 @@ public class PullMessageProcessor implements NettyRequestProcessor {
 
         TopicQueueMappingContext mappingContext = this.brokerController.getTopicQueueMappingManager().buildTopicQueueMappingContext(requestHeader, false);
 
-        {
-            RemotingCommand rewriteResult = rewriteRequestForStaticTopic(requestHeader, mappingContext);
-            if (rewriteResult != null) {
-                return rewriteResult;
-            }
-        }
+//        {
+//            RemotingCommand rewriteResult = rewriteRequestForStaticTopic(requestHeader, mappingContext);
+//            if (rewriteResult != null) {
+//                return rewriteResult;
+//            }
+//        }
 
         //校验请求中的队列id，如果小于0或者大于等于topic配置中的读队列数量，那么直接返回
         if (requestHeader.getQueueId() < 0 || requestHeader.getQueueId() >= topicConfig.getReadQueueNums()) {
@@ -120,105 +144,105 @@ public class PullMessageProcessor implements NettyRequestProcessor {
          * 真正的过滤消息操作还在后面，而且broker和consumer都会进行过滤
          */
         SubscriptionData subscriptionData = null;
-        ConsumerFilterData consumerFilterData = null;
-        if (hasSubscriptionFlag) {
-            try {
-                subscriptionData = FilterAPI.build(
-                        requestHeader.getTopic(), requestHeader.getSubscription(), requestHeader.getExpressionType()
-                );
-                if (!ExpressionType.isTagType(subscriptionData.getExpressionType())) {
-                    consumerFilterData = ConsumerFilterManager.build(
-                            requestHeader.getTopic(), requestHeader.getConsumerGroup(), requestHeader.getSubscription(),
-                            requestHeader.getExpressionType(), requestHeader.getSubVersion()
-                    );
-                    assert consumerFilterData != null;
-                }
-            } catch (Exception e) {
-                LOGGER.warn("Parse the consumer's subscription[{}] failed, group: {}", requestHeader.getSubscription(),
-                        requestHeader.getConsumerGroup());
-                response.setCode(ResponseCode.SUBSCRIPTION_PARSE_FAILED);
-                response.setRemark("parse the consumer's subscription failed");
-                return response;
-            }
-        } else {
-            //获取消费者组的信息
-            ConsumerGroupInfo consumerGroupInfo =
-                    this.brokerController.getConsumerManager().getConsumerGroupInfo(requestHeader.getConsumerGroup());
-            if (null == consumerGroupInfo) {
-                LOGGER.warn("the consumer's group info not exist, group: {}", requestHeader.getConsumerGroup());
-                response.setCode(ResponseCode.SUBSCRIPTION_NOT_EXIST);
-                response.setRemark("the consumer's group info not exist" + FAQUrl.suggestTodo(FAQUrl.SAME_GROUP_DIFFERENT_TOPIC));
-                return response;
-            }
+//        ConsumerFilterData consumerFilterData = null;
+//        if (hasSubscriptionFlag) {
+//            try {
+//                subscriptionData = FilterAPI.build(
+//                        requestHeader.getTopic(), requestHeader.getSubscription(), requestHeader.getExpressionType()
+//                );
+//                if (!ExpressionType.isTagType(subscriptionData.getExpressionType())) {
+//                    consumerFilterData = ConsumerFilterManager.build(
+//                            requestHeader.getTopic(), requestHeader.getConsumerGroup(), requestHeader.getSubscription(),
+//                            requestHeader.getExpressionType(), requestHeader.getSubVersion()
+//                    );
+//                    assert consumerFilterData != null;
+//                }
+//            } catch (Exception e) {
+//                LOGGER.warn("Parse the consumer's subscription[{}] failed, group: {}", requestHeader.getSubscription(),
+//                        requestHeader.getConsumerGroup());
+//                response.setCode(ResponseCode.SUBSCRIPTION_PARSE_FAILED);
+//                response.setRemark("parse the consumer's subscription failed");
+//                return response;
+//            }
+//        } else {
+//            //获取消费者组的信息
+//            ConsumerGroupInfo consumerGroupInfo =
+//                    this.brokerController.getConsumerManager().getConsumerGroupInfo(requestHeader.getConsumerGroup());
+//            if (null == consumerGroupInfo) {
+//                LOGGER.warn("the consumer's group info not exist, group: {}", requestHeader.getConsumerGroup());
+//                response.setCode(ResponseCode.SUBSCRIPTION_NOT_EXIST);
+//                response.setRemark("the consumer's group info not exist");
+//                return response;
+//            }
+//
+//            //如果不支持广播消费但是消费者消费模是的广播消费，则直接返回
+//            if (!subscriptionGroupConfig.isConsumeBroadcastEnable()
+//                    && consumerGroupInfo.getMessageModel() == MessageModel.BROADCASTING) {
+//                response.setCode(ResponseCode.NO_PERMISSION);
+//                responseHeader.setForbiddenType(ForbiddenType.BROADCASTING_DISABLE_FORBIDDEN);
+//                response.setRemark("the consumer group[" + requestHeader.getConsumerGroup() + "] can not consume by broadcast way");
+//                return response;
+//            }
+//
+//            boolean readForbidden = this.brokerController.getSubscriptionGroupManager().getForbidden(
+//                    subscriptionGroupConfig.getGroupName(), requestHeader.getTopic(), PermName.INDEX_PERM_READ);
+//            if (readForbidden) {
+//                response.setCode(ResponseCode.NO_PERMISSION);
+//                responseHeader.setForbiddenType(ForbiddenType.SUBSCRIPTION_FORBIDDEN);
+//                response.setRemark("the consumer group[" + requestHeader.getConsumerGroup() + "] is forbidden for topic[" + requestHeader.getTopic() + "]");
+//                return response;
+//            }
+//
+//            //获取broker缓存的此consumerGroupInfo中关于此topic的订阅关系，这个就是consumer启动时发送给broker的
+//            subscriptionData = consumerGroupInfo.findSubscriptionData(requestHeader.getTopic());
+//            if (null == subscriptionData) {
+//                LOGGER.warn("the consumer's subscription not exist, group: {}, topic:{}", requestHeader.getConsumerGroup(), requestHeader.getTopic());
+//                response.setCode(ResponseCode.SUBSCRIPTION_NOT_EXIST);
+//                response.setRemark("the consumer's subscription not exist");
+//                return response;
+//            }
+//
+//            //比较订阅关系版本
+//            if (subscriptionData.getSubVersion() < requestHeader.getSubVersion()) {
+//                LOGGER.warn("The broker's subscription is not latest, group: {} {}", requestHeader.getConsumerGroup(),
+//                        subscriptionData.getSubString());
+//                response.setCode(ResponseCode.SUBSCRIPTION_NOT_LATEST);
+//                response.setRemark("the consumer's subscription not latest");
+//                return response;
+//            }
+//            if (!ExpressionType.isTagType(subscriptionData.getExpressionType())) {
+//                consumerFilterData = this.brokerController.getConsumerFilterManager().get(requestHeader.getTopic(),
+//                        requestHeader.getConsumerGroup());
+//                if (consumerFilterData == null) {
+//                    response.setCode(ResponseCode.FILTER_DATA_NOT_EXIST);
+//                    response.setRemark("The broker's consumer filter data is not exist!Your expression may be wrong!");
+//                    return response;
+//                }
+//                if (consumerFilterData.getClientVersion() < requestHeader.getSubVersion()) {
+//                    LOGGER.warn("The broker's consumer filter data is not latest, group: {}, topic: {}, serverV: {}, clientV: {}",
+//                            requestHeader.getConsumerGroup(), requestHeader.getTopic(), consumerFilterData.getClientVersion(), requestHeader.getSubVersion());
+//                    response.setCode(ResponseCode.FILTER_DATA_NOT_LATEST);
+//                    response.setRemark("the consumer's consumer filter data not latest");
+//                    return response;
+//                }
+//            }
+//        }
+//
+//        if (!ExpressionType.isTagType(subscriptionData.getExpressionType())
+//                && !this.brokerController.getBrokerConfig().isEnablePropertyFilter()) {
+//            response.setCode(ResponseCode.SYSTEM_ERROR);
+//            response.setRemark("The broker does not support consumer to filter message by " + subscriptionData.getExpressionType());
+//            return response;
+//        }
 
-            //如果不支持广播消费但是消费者消费模是的广播消费，则直接返回
-            if (!subscriptionGroupConfig.isConsumeBroadcastEnable()
-                    && consumerGroupInfo.getMessageModel() == MessageModel.BROADCASTING) {
-                response.setCode(ResponseCode.NO_PERMISSION);
-                responseHeader.setForbiddenType(ForbiddenType.BROADCASTING_DISABLE_FORBIDDEN);
-                response.setRemark("the consumer group[" + requestHeader.getConsumerGroup() + "] can not consume by broadcast way");
-                return response;
-            }
-
-            boolean readForbidden = this.brokerController.getSubscriptionGroupManager().getForbidden(
-                    subscriptionGroupConfig.getGroupName(), requestHeader.getTopic(), PermName.INDEX_PERM_READ);
-            if (readForbidden) {
-                response.setCode(ResponseCode.NO_PERMISSION);
-                responseHeader.setForbiddenType(ForbiddenType.SUBSCRIPTION_FORBIDDEN);
-                response.setRemark("the consumer group[" + requestHeader.getConsumerGroup() + "] is forbidden for topic[" + requestHeader.getTopic() + "]");
-                return response;
-            }
-
-            //获取broker缓存的此consumerGroupInfo中关于此topic的订阅关系，这个就是consumer启动时发送给broker的
-            subscriptionData = consumerGroupInfo.findSubscriptionData(requestHeader.getTopic());
-            if (null == subscriptionData) {
-                LOGGER.warn("the consumer's subscription not exist, group: {}, topic:{}", requestHeader.getConsumerGroup(), requestHeader.getTopic());
-                response.setCode(ResponseCode.SUBSCRIPTION_NOT_EXIST);
-                response.setRemark("the consumer's subscription not exist" + FAQUrl.suggestTodo(FAQUrl.SAME_GROUP_DIFFERENT_TOPIC));
-                return response;
-            }
-
-            //比较订阅关系版本
-            if (subscriptionData.getSubVersion() < requestHeader.getSubVersion()) {
-                LOGGER.warn("The broker's subscription is not latest, group: {} {}", requestHeader.getConsumerGroup(),
-                        subscriptionData.getSubString());
-                response.setCode(ResponseCode.SUBSCRIPTION_NOT_LATEST);
-                response.setRemark("the consumer's subscription not latest");
-                return response;
-            }
-            if (!ExpressionType.isTagType(subscriptionData.getExpressionType())) {
-                consumerFilterData = this.brokerController.getConsumerFilterManager().get(requestHeader.getTopic(),
-                        requestHeader.getConsumerGroup());
-                if (consumerFilterData == null) {
-                    response.setCode(ResponseCode.FILTER_DATA_NOT_EXIST);
-                    response.setRemark("The broker's consumer filter data is not exist!Your expression may be wrong!");
-                    return response;
-                }
-                if (consumerFilterData.getClientVersion() < requestHeader.getSubVersion()) {
-                    LOGGER.warn("The broker's consumer filter data is not latest, group: {}, topic: {}, serverV: {}, clientV: {}",
-                            requestHeader.getConsumerGroup(), requestHeader.getTopic(), consumerFilterData.getClientVersion(), requestHeader.getSubVersion());
-                    response.setCode(ResponseCode.FILTER_DATA_NOT_LATEST);
-                    response.setRemark("the consumer's consumer filter data not latest");
-                    return response;
-                }
-            }
-        }
-
-        if (!ExpressionType.isTagType(subscriptionData.getExpressionType())
-                && !this.brokerController.getBrokerConfig().isEnablePropertyFilter()) {
-            response.setCode(ResponseCode.SYSTEM_ERROR);
-            response.setRemark("The broker does not support consumer to filter message by " + subscriptionData.getExpressionType());
-            return response;
-        }
-
-        MessageFilter messageFilter;
-        if (this.brokerController.getBrokerConfig().isFilterSupportRetry()) {
-            messageFilter = new ExpressionForRetryMessageFilter(subscriptionData, consumerFilterData,
-                    this.brokerController.getConsumerFilterManager());
-        } else {
-            messageFilter = new ExpressionMessageFilter(subscriptionData, consumerFilterData,
-                    this.brokerController.getConsumerFilterManager());
-        }
+        MessageFilter messageFilter = null;
+//        if (this.brokerController.getBrokerConfig().isFilterSupportRetry()) {
+//            messageFilter = new ExpressionForRetryMessageFilter(subscriptionData, consumerFilterData,
+//                    this.brokerController.getConsumerFilterManager());
+//        } else {
+//            messageFilter = new ExpressionMessageFilter(subscriptionData, consumerFilterData,
+//                    this.brokerController.getConsumerFilterManager());
+//        }
 
         /**
          * 2 通过DefaultMessageStore#getMessage方法批量拉取消息，并且进行过滤操作。
@@ -326,82 +350,82 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             /**
              * 3.3 判断如果有消费钩子，那么执行consumeMessageBefore方法
              */
-            if (this.hasConsumeMessageHook()) {
-                String owner = request.getExtFields().get(BrokerStatsManager.COMMERCIAL_OWNER);
-                String authType = request.getExtFields().get(BrokerStatsManager.ACCOUNT_AUTH_TYPE);
-                String ownerParent = request.getExtFields().get(BrokerStatsManager.ACCOUNT_OWNER_PARENT);
-                String ownerSelf = request.getExtFields().get(BrokerStatsManager.ACCOUNT_OWNER_SELF);
-
-                //构建上下文信息
-                ConsumeMessageContext context = new ConsumeMessageContext();
-                context.setConsumerGroup(requestHeader.getConsumerGroup());
-                context.setTopic(requestHeader.getTopic());
-                context.setQueueId(requestHeader.getQueueId());
-                context.setAccountAuthType(authType);
-                context.setAccountOwnerParent(ownerParent);
-                context.setAccountOwnerSelf(ownerSelf);
-                context.setNamespace(NamespaceUtil.getNamespaceFromResource(requestHeader.getTopic()));
-
-                //3.4 判断响应码，然后直接返回数据或者进行短轮询或者长轮询
-                switch (response.getCode()) {
-                    case ResponseCode.SUCCESS:
-                        int commercialBaseCount = brokerController.getBrokerConfig().getCommercialBaseCount();
-                        int incValue = getMessageResult.getMsgCount4Commercial() * commercialBaseCount;
-
-                        context.setCommercialRcvStats(BrokerStatsManager.StatsType.RCV_SUCCESS);
-                        context.setCommercialRcvTimes(incValue);
-                        context.setCommercialRcvSize(getMessageResult.getBufferTotalSize());
-                        context.setCommercialOwner(owner);
-
-                        context.setRcvStat(BrokerStatsManager.StatsType.RCV_SUCCESS);
-                        context.setRcvMsgNum(getMessageResult.getMessageCount());
-                        context.setRcvMsgSize(getMessageResult.getBufferTotalSize());
-                        context.setCommercialRcvMsgNum(getMessageResult.getMsgCount4Commercial());
-
-                        break;
-                    case ResponseCode.PULL_NOT_FOUND:
-                        if (!brokerAllowSuspend) {
-
-                            context.setCommercialRcvStats(BrokerStatsManager.StatsType.RCV_EPOLLS);
-                            context.setCommercialRcvTimes(1);
-                            context.setCommercialOwner(owner);
-
-                            context.setRcvStat(BrokerStatsManager.StatsType.RCV_EPOLLS);
-                            context.setRcvMsgNum(0);
-                            context.setRcvMsgSize(0);
-                            context.setCommercialRcvMsgNum(0);
-                        }
-                        break;
-                    case ResponseCode.PULL_RETRY_IMMEDIATELY:
-                    case ResponseCode.PULL_OFFSET_MOVED:
-                        context.setCommercialRcvStats(BrokerStatsManager.StatsType.RCV_EPOLLS);
-                        context.setCommercialRcvTimes(1);
-                        context.setCommercialOwner(owner);
-
-                        context.setRcvStat(BrokerStatsManager.StatsType.RCV_EPOLLS);
-                        context.setRcvMsgNum(0);
-                        context.setRcvMsgSize(0);
-                        context.setCommercialRcvMsgNum(0);
-                        break;
-                    default:
-                        assert false;
-                        break;
-                }
-
-                try {
-                    this.executeConsumeMessageHookBefore(context);
-                } catch (AbortProcessException e) {
-                    response.setCode(e.getResponseCode());
-                    response.setRemark(e.getErrorMessage());
-                    return response;
-                }
-            }
+//            if (this.hasConsumeMessageHook()) {
+//                String owner = request.getExtFields().get(BrokerStatsManager.COMMERCIAL_OWNER);
+//                String authType = request.getExtFields().get(BrokerStatsManager.ACCOUNT_AUTH_TYPE);
+//                String ownerParent = request.getExtFields().get(BrokerStatsManager.ACCOUNT_OWNER_PARENT);
+//                String ownerSelf = request.getExtFields().get(BrokerStatsManager.ACCOUNT_OWNER_SELF);
+//
+//                //构建上下文信息
+//                ConsumeMessageContext context = new ConsumeMessageContext();
+//                context.setConsumerGroup(requestHeader.getConsumerGroup());
+//                context.setTopic(requestHeader.getTopic());
+//                context.setQueueId(requestHeader.getQueueId());
+//                context.setAccountAuthType(authType);
+//                context.setAccountOwnerParent(ownerParent);
+//                context.setAccountOwnerSelf(ownerSelf);
+//                context.setNamespace(NamespaceUtil.getNamespaceFromResource(requestHeader.getTopic()));
+//
+//                //3.4 判断响应码，然后直接返回数据或者进行短轮询或者长轮询
+//                switch (response.getCode()) {
+//                    case ResponseCode.SUCCESS:
+//                        int commercialBaseCount = brokerController.getBrokerConfig().getCommercialBaseCount();
+//                        int incValue = getMessageResult.getMsgCount4Commercial() * commercialBaseCount;
+//
+//                        context.setCommercialRcvStats(BrokerStatsManager.StatsType.RCV_SUCCESS);
+//                        context.setCommercialRcvTimes(incValue);
+//                        context.setCommercialRcvSize(getMessageResult.getBufferTotalSize());
+//                        context.setCommercialOwner(owner);
+//
+//                        context.setRcvStat(BrokerStatsManager.StatsType.RCV_SUCCESS);
+//                        context.setRcvMsgNum(getMessageResult.getMessageCount());
+//                        context.setRcvMsgSize(getMessageResult.getBufferTotalSize());
+//                        context.setCommercialRcvMsgNum(getMessageResult.getMsgCount4Commercial());
+//
+//                        break;
+//                    case ResponseCode.PULL_NOT_FOUND:
+//                        if (!brokerAllowSuspend) {
+//
+//                            context.setCommercialRcvStats(BrokerStatsManager.StatsType.RCV_EPOLLS);
+//                            context.setCommercialRcvTimes(1);
+//                            context.setCommercialOwner(owner);
+//
+//                            context.setRcvStat(BrokerStatsManager.StatsType.RCV_EPOLLS);
+//                            context.setRcvMsgNum(0);
+//                            context.setRcvMsgSize(0);
+//                            context.setCommercialRcvMsgNum(0);
+//                        }
+//                        break;
+//                    case ResponseCode.PULL_RETRY_IMMEDIATELY:
+//                    case ResponseCode.PULL_OFFSET_MOVED:
+//                        context.setCommercialRcvStats(BrokerStatsManager.StatsType.RCV_EPOLLS);
+//                        context.setCommercialRcvTimes(1);
+//                        context.setCommercialOwner(owner);
+//
+//                        context.setRcvStat(BrokerStatsManager.StatsType.RCV_EPOLLS);
+//                        context.setRcvMsgNum(0);
+//                        context.setRcvMsgSize(0);
+//                        context.setCommercialRcvMsgNum(0);
+//                        break;
+//                    default:
+//                        assert false;
+//                        break;
+//                }
+//
+//                try {
+//                    this.executeConsumeMessageHookBefore(context);
+//                } catch (AbortProcessException e) {
+//                    response.setCode(e.getResponseCode());
+//                    response.setRemark(e.getErrorMessage());
+//                    return response;
+//                }
+//            }
 
             //rewrite the response for the
-            RemotingCommand rewriteResult = rewriteResponseForStaticTopic(requestHeader, responseHeader, mappingContext, response.getCode());
-            if (rewriteResult != null) {
-                response = rewriteResult;
-            }
+//            RemotingCommand rewriteResult = rewriteResponseForStaticTopic(requestHeader, responseHeader, mappingContext, response.getCode());
+//            if (rewriteResult != null) {
+//                response = rewriteResult;
+//            }
 
             response = this.pullMessageResultHandler.handle(
                     getMessageResult,
@@ -433,6 +457,69 @@ public class PullMessageProcessor implements NettyRequestProcessor {
         return response;
     }
 
+//    private RemotingCommand rewriteRequestForStaticTopic(PullMessageRequestHeader requestHeader,
+//                                                         TopicQueueMappingContext mappingContext) {
+//        try {
+//            if (mappingContext.getMappingDetail() == null) {
+//                return null;
+//            }
+//            TopicQueueMappingDetail mappingDetail = mappingContext.getMappingDetail();
+//            String topic = mappingContext.getTopic();
+//            Integer globalId = mappingContext.getGlobalId();
+//            // if the leader? consider the order consumer, which will lock the mq
+//            if (!mappingContext.isLeader()) {
+//                return buildErrorResponse(ResponseCode.NOT_LEADER_FOR_QUEUE, String.format("%s-%d cannot find mapping item in request process of current broker %s", topic, globalId, mappingDetail.getBname()));
+//            }
+//
+//            Long globalOffset = requestHeader.getQueueOffset();
+//            LogicQueueMappingItem mappingItem = TopicQueueMappingUtils.findLogicQueueMappingItem(mappingContext.getMappingItemList(), globalOffset, true);
+//            mappingContext.setCurrentItem(mappingItem);
+//
+//            if (globalOffset < mappingItem.getLogicOffset()) {
+//                //handleOffsetMoved
+//                //If the physical queue is reused, we should handle the PULL_OFFSET_MOVED independently
+//                //Otherwise, we could just transfer it to the physical process
+//            }
+//            //below are physical info
+//            String bname = mappingItem.getBname();
+//            Integer phyQueueId = mappingItem.getQueueId();
+//            Long phyQueueOffset = mappingItem.computePhysicalQueueOffset(globalOffset);
+//            requestHeader.setQueueId(phyQueueId);
+//            requestHeader.setQueueOffset(phyQueueOffset);
+//            if (mappingItem.checkIfEndOffsetDecided()
+//                    && requestHeader.getMaxMsgNums() != null) {
+//                requestHeader.setMaxMsgNums((int) Math.min(mappingItem.getEndOffset() - mappingItem.getStartOffset(), requestHeader.getMaxMsgNums()));
+//            }
+//
+//            if (mappingDetail.getBname().equals(bname)) {
+//                //just let it go, do the local pull process
+//                return null;
+//            }
+//
+//            int sysFlag = requestHeader.getSysFlag();
+//            requestHeader.setLo(false);
+//            requestHeader.setBname(bname);
+//            sysFlag = PullSysFlag.clearSuspendFlag(sysFlag);
+//            sysFlag = PullSysFlag.clearCommitOffsetFlag(sysFlag);
+//            requestHeader.setSysFlag(sysFlag);
+//            RpcRequest rpcRequest = new RpcRequest(RequestCode.PULL_MESSAGE, requestHeader, null);
+//            RpcResponse rpcResponse = this.brokerController.getBrokerOuterAPI().getRpcClient().invoke(rpcRequest, this.brokerController.getBrokerConfig().getForwardTimeout()).get();
+//            if (rpcResponse.getException() != null) {
+//                throw rpcResponse.getException();
+//            }
+//
+//            PullMessageResponseHeader responseHeader = (PullMessageResponseHeader) rpcResponse.getHeader();
+//            {
+//                RemotingCommand rewriteResult = rewriteResponseForStaticTopic(requestHeader, responseHeader, mappingContext, rpcResponse.getCode());
+//                if (rewriteResult != null) {
+//                    return rewriteResult;
+//                }
+//            }
+//            return RpcClientUtils.createCommandForRpcResponse(rpcResponse);
+//        } catch (Throwable t) {
+//            return RemotingCommand.buildErrorResponse(ResponseCode.SYSTEM_ERROR, t.getMessage());
+//        }
+//    }
 
     @Override
     public boolean rejectRequest() {
