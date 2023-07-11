@@ -1,16 +1,17 @@
 package com.open.openmq.client.impl.consumer;
 
 import com.open.openmq.client.consumer.DefaultMQPushConsumer;
-import com.open.openmq.client.consumer.listener.MessageListenerOrderly;
+import com.open.openmq.client.consumer.listener.MessageListenerConcurrently;
 import com.open.openmq.client.log.ClientLogger;
 import com.open.openmq.common.ThreadFactoryImpl;
 import com.open.openmq.common.message.MessageExt;
 import com.open.openmq.common.message.MessageQueue;
 import com.open.openmq.common.protocol.body.ConsumeMessageDirectlyResult;
-import com.open.openmq.common.protocol.heartbeat.MessageModel;
 import com.open.openmq.logging.InternalLogger;
 
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -19,32 +20,32 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 /**
- * @Description ConsumeMessageOrderlyService是一个服务类，用于实现有序消息消费。有序消息消费是一种特殊的消息消费模式
- * 它保证同一个消息只被一个消费者处理，以确保消息处理的顺序性。
- * 具体来说，ConsumeMessageOrderlyService实现了以下功能：
- * 1、实现了MessageListenerOrderly接口，指定了消息消费的逻辑。
- * 2、维护了一个消费者队列，每个消费者都对应一个队列中的位置。
- * 3、当有新的消息到达时，ConsumeMessageOrderlyService会根据负载均衡策略将消息分配给队列中的某个消费者。
- * 消费者会按照消息的顺序依次处理消息，保证消息处理的顺序性。
- * @Date 2023/3/21 9:33
+ * @Description ConsumeMessageConcurrentlyService是一个服务类，用于实现并发消息消费。并发消息消费是一种高效的消息消费模式，
+ * 它能够充分利用系统资源，提高消息处理的吞吐量。
+ * 具体来说，ConsumeMessageConcurrentlyService实现了以下功能：
+ * 1、 实现了MessageListenerConcurrently接口，指定了消息消费的逻辑。
+ * 2、使用Select算法将多个消费者线程分配到多个消息队列上，实现负载均衡。
+ * 3、每个消费者线程独立处理消息，可以同时处理多个消息，提高处理效率。
+ * 4、当有新的消息到达时，ConsumeMessageConcurrentlyService会将其分配给空闲的消费者线程，以充分利用系统资源。
+ * 通过使用ConsumeMessageConcurrentlyService，您可以实现并发消息消费，提高消息处理的吞吐量。
+ * @Date 2023/6/19 17:25
  * @Author jack wu
  */
-public class ConsumeMessageOrderlyService implements ConsumeMessageService {
+public class ConsumeMessageConcurrentlyService implements ConsumeMessageService {
+
     private static final InternalLogger log = ClientLogger.getLog();
-    private final static long MAX_TIME_CONSUME_CONTINUOUSLY =
-            Long.parseLong(System.getProperty("rocketmq.client.maxTimeConsumeContinuously", "60000"));
     private final DefaultMQPushConsumerImpl defaultMQPushConsumerImpl;
     private final DefaultMQPushConsumer defaultMQPushConsumer;
-    private final MessageListenerOrderly messageListener;
+    private final MessageListenerConcurrently messageListener;
     private final BlockingQueue<Runnable> consumeRequestQueue;
     private final ThreadPoolExecutor consumeExecutor;
     private final String consumerGroup;
-    private final MessageQueueLock messageQueueLock = new MessageQueueLock();
-    private final ScheduledExecutorService scheduledExecutorService;
-    private volatile boolean stopped = false;
 
-    public ConsumeMessageOrderlyService(DefaultMQPushConsumerImpl defaultMQPushConsumerImpl,
-                                        MessageListenerOrderly messageListener) {
+    private final ScheduledExecutorService scheduledExecutorService;
+    private final ScheduledExecutorService cleanExpireMsgExecutors;
+
+    public ConsumeMessageConcurrentlyService(DefaultMQPushConsumerImpl defaultMQPushConsumerImpl,
+                                             MessageListenerConcurrently messageListener) {
         this.defaultMQPushConsumerImpl = defaultMQPushConsumerImpl;
         this.messageListener = messageListener;
 
@@ -54,7 +55,7 @@ public class ConsumeMessageOrderlyService implements ConsumeMessageService {
 
         String consumeThreadPrefix = null;
         if (consumerGroup.length() > 100) {
-            consumeThreadPrefix = new StringBuilder("ConsumeMessageThread_").append(consumerGroup.substring(0, 100)).append("_").toString();
+            consumeThreadPrefix = new StringBuilder("ConsumeMessageThread_").append(consumerGroup, 0, 100).append("_").toString();
         } else {
             consumeThreadPrefix = new StringBuilder("ConsumeMessageThread_").append(consumerGroup).append("_").toString();
         }
@@ -67,31 +68,32 @@ public class ConsumeMessageOrderlyService implements ConsumeMessageService {
                 new ThreadFactoryImpl(consumeThreadPrefix));
 
         this.scheduledExecutorService = Executors.newSingleThreadScheduledExecutor(new ThreadFactoryImpl("ConsumeMessageScheduledThread_"));
+        this.cleanExpireMsgExecutors = Executors.newSingleThreadScheduledExecutor(new ThreadFactoryImpl("CleanExpireMsgScheduledThread_"));
     }
 
     @Override
     public void start() {
-        //如果是集群模式
-        if (MessageModel.CLUSTERING.equals(ConsumeMessageOrderlyService.this.defaultMQPushConsumerImpl.messageModel())) {
-            //启动一个定时任务，启动后1s执行，后续每20s执行一次
-            //尝试对所有分配给当前consumer的队列请求broker端的消息队列锁，保证同时只有一个消费端可以消费。
-            this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        ConsumeMessageOrderlyService.this.lockMQPeriodically();
-                    } catch (Throwable e) {
-                        log.error("scheduleAtFixedRate lockMQPeriodically exception", e);
-                    }
+        this.cleanExpireMsgExecutors.scheduleAtFixedRate(new Runnable() {
+
+            @Override
+            public void run() {
+                try {
+                    cleanExpireMsg();
+                } catch (Throwable e) {
+                    log.error("scheduleAtFixedRate cleanExpireMsg exception", e);
                 }
-            }, 1000 * 1, ProcessQueue.REBALANCE_LOCK_INTERVAL, TimeUnit.MILLISECONDS);
-        }
+            }
+
+        }, this.defaultMQPushConsumer.getConsumeTimeout(), this.defaultMQPushConsumer.getConsumeTimeout(), TimeUnit.MINUTES);
     }
 
-    public synchronized void lockMQPeriodically() {
-        if (!this.stopped) {
-            //锁定所有消息队列
-            this.defaultMQPushConsumerImpl.getRebalanceImpl().lockAll();
+    private void cleanExpireMsg() {
+        Iterator<Map.Entry<MessageQueue, ProcessQueue>> it =
+                this.defaultMQPushConsumerImpl.getRebalanceImpl().getProcessQueueTable().entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<MessageQueue, ProcessQueue> next = it.next();
+            ProcessQueue pq = next.getValue();
+            pq.cleanExpiredMsg(this.defaultMQPushConsumer);
         }
     }
 
@@ -129,9 +131,4 @@ public class ConsumeMessageOrderlyService implements ConsumeMessageService {
     public void submitConsumeRequest(List<MessageExt> msgs, ProcessQueue processQueue, MessageQueue messageQueue, boolean dispathToConsume) {
 
     }
-
-//    @Override
-//    public void submitPopConsumeRequest(List<MessageExt> msgs, PopProcessQueue processQueue, MessageQueue messageQueue) {
-//
-//    }
 }
