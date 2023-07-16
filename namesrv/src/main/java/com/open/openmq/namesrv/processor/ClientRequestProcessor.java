@@ -1,7 +1,9 @@
 package com.open.openmq.namesrv.processor;
 
 import com.alibaba.fastjson.serializer.SerializerFeature;
-import com.open.openmq.common.MQVersion;
+import com.open.openmq.common.namesrv.NamesrvUtil;
+import com.open.openmq.common.protocol.ResponseCode;
+import com.open.openmq.common.protocol.header.namesrv.GetRouteInfoRequestHeader;
 import com.open.openmq.common.protocol.route.TopicRouteData;
 import com.open.openmq.namesrv.NamesrvController;
 import com.open.openmq.remoting.exception.RemotingCommandException;
@@ -17,6 +19,10 @@ import io.netty.channel.ChannelHandlerContext;
 public class ClientRequestProcessor implements NettyRequestProcessor {
 
     protected NamesrvController namesrvController;
+
+    public ClientRequestProcessor(final NamesrvController namesrvController) {
+        this.namesrvController = namesrvController;
+    }
 
     @Override
     public RemotingCommand processRequest(final ChannelHandlerContext ctx,
@@ -42,7 +48,7 @@ public class ClientRequestProcessor implements NettyRequestProcessor {
 
             byte[] content;
             Boolean standardJsonOnly = requestHeader.getAcceptStandardJsonOnly();
-            if (request.getVersion() >= MQVersion.Version.V4_9_4.ordinal() || null != standardJsonOnly && standardJsonOnly) {
+            if ( null != standardJsonOnly && standardJsonOnly) {
                 content = topicRouteData.encode(SerializerFeature.BrowserCompatible,
                         SerializerFeature.QuoteFieldNames, SerializerFeature.SkipTransientField,
                         SerializerFeature.MapSortField);
@@ -57,8 +63,7 @@ public class ClientRequestProcessor implements NettyRequestProcessor {
         }
 
         response.setCode(ResponseCode.TOPIC_NOT_EXIST);
-        response.setRemark("No topic route info in name server for the topic: " + requestHeader.getTopic()
-                + FAQUrl.suggestTodo(FAQUrl.APPLY_TOPIC_URL));
+        response.setRemark("No topic route info in name server for the topic: " + requestHeader.getTopic());
         return response;
     }
 
