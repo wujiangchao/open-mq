@@ -28,4 +28,44 @@ public class PullRequest implements MessageRequest{
      * 是否被锁定
      */
     private boolean previouslyLocked = false;
+
+    public String getConsumerGroup() {
+        return consumerGroup;
+    }
+
+    public void setConsumerGroup(String consumerGroup) {
+        this.consumerGroup = consumerGroup;
+    }
+
+    public MessageQueue getMessageQueue() {
+        return messageQueue;
+    }
+
+    public void setMessageQueue(MessageQueue messageQueue) {
+        this.messageQueue = messageQueue;
+    }
+
+    public ProcessQueue getProcessQueue() {
+        return processQueue;
+    }
+
+    public void setProcessQueue(ProcessQueue processQueue) {
+        this.processQueue = processQueue;
+    }
+
+    public long getNextOffset() {
+        return nextOffset;
+    }
+
+    public void setNextOffset(long nextOffset) {
+        this.nextOffset = nextOffset;
+    }
+
+    public boolean isPreviouslyLocked() {
+        return previouslyLocked;
+    }
+
+    public void setPreviouslyLocked(boolean previouslyLocked) {
+        this.previouslyLocked = previouslyLocked;
+    }
 }

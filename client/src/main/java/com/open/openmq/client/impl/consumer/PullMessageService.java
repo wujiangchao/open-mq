@@ -5,7 +5,10 @@ import com.open.openmq.client.log.ClientLogger;
 import com.open.openmq.common.ServiceThread;
 import com.open.openmq.logging.InternalLogger;
 
+import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -18,9 +21,22 @@ public class PullMessageService extends ServiceThread {
     private final LinkedBlockingQueue<MessageRequest> messageRequestQueue = new LinkedBlockingQueue<MessageRequest>();
 
     private final MQClientInstance mQClientFactory;
+
+    private final ScheduledExecutorService scheduledExecutorService = Executors
+            .newSingleThreadScheduledExecutor(new ThreadFactory() {
+                @Override
+                public Thread newThread(Runnable r) {
+                    return new Thread(r, "PullMessageServiceScheduledThread");
+                }
+            });
+
+    public PullMessageService(MQClientInstance mQClientFactory) {
+        this.mQClientFactory = mQClientFactory;
+    }
+
     @Override
     public String getServiceName() {
-        return null;
+        return PullMessageService.class.getSimpleName();
     }
 
     @Override
@@ -29,11 +45,13 @@ public class PullMessageService extends ServiceThread {
         while (!this.isStopped()) {
             try {
                 MessageRequest messageRequest = this.messageRequestQueue.take();
-                if (messageRequest.getMessageRequestMode() == MessageRequestMode.POP) {
-                   // this.popMessage((PopRequest)messageRequest);
-                } else {
-                    this.pullMessage((PullRequest)messageRequest);
-                }
+//                if (messageRequest.getMessageRequestMode() == MessageRequestMode.POP) {
+//                   // this.popMessage((PopRequest)messageRequest);
+//                } else {
+//                    this.pullMessage((PullRequest)messageRequest);
+//                }
+
+                this.pullMessage((PullRequest) messageRequest);
             } catch (InterruptedException ignored) {
             } catch (Exception e) {
                 log.error("Pull Message Service Run Method exception", e);
@@ -43,8 +61,17 @@ public class PullMessageService extends ServiceThread {
         log.info(this.getServiceName() + " service end");
     }
 
+    public void executeTaskLater(final Runnable r, final long timeDelay) {
+        if (!isStopped()) {
+            this.scheduledExecutorService.schedule(r, timeDelay, TimeUnit.MILLISECONDS);
+        } else {
+            log.warn("PullMessageServiceScheduledThread has shutdown");
+        }
+    }
+
     /**
      * 延时添加
+     *
      * @param pullRequest
      * @param timeDelay
      */
@@ -63,6 +90,7 @@ public class PullMessageService extends ServiceThread {
 
     /**
      * 立即添加
+     *
      * @param pullRequest
      */
     public void executePullRequestImmediately(final PullRequest pullRequest) {
