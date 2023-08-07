@@ -132,6 +132,17 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
     }
 
 
+    /**
+     *
+     * @param ctx
+     * @param request
+     * @param sendMessageContext
+     * @param requestHeader
+     * @param mappingContext
+     * @param sendMessageCallback
+     * @return
+     * @throws RemotingCommandException
+     */
     public RemotingCommand sendMessage(final ChannelHandlerContext ctx,
                                        final RemotingCommand request,
                                        final SendMessageContext sendMessageContext,
@@ -486,18 +497,16 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         response.addExtField(MessageConst.PROPERTY_TRACE_SWITCH, String.valueOf(this.brokerController.getBrokerConfig().isTraceOn()));
 
         LOGGER.debug("Receive SendMessage request command {}", request);
-//
-//        final long startTimestamp = this.brokerController.getBrokerConfig().getStartAcceptSendRequestTimeStamp();
-//
-//        if (this.brokerController.getMessageStore().now() < startTimestamp) {
-//            response.setCode(ResponseCode.SYSTEM_ERROR);
-//            response.setRemark(String.format("broker unable to service, until %s", UtilAll.timeMillisToHumanString2(startTimestamp)));
-//            return response;
-//        }
-//
-//        response.setCode(-1);
-//        super.msgCheck(ctx, requestHeader, request, response);
+        final long startTimestamp = this.brokerController.getBrokerConfig().getStartAcceptSendRequestTimeStamp();
 
+        if (this.brokerController.getMessageStore().now() < startTimestamp) {
+            response.setCode(ResponseCode.SYSTEM_ERROR);
+            response.setRemark(String.format("broker unable to service, until %s", UtilAll.timeMillisToHumanString2(startTimestamp)));
+            return response;
+        }
+
+        response.setCode(-1);
+        super.msgCheck(ctx, requestHeader, request, response);
         return response;
     }
 
