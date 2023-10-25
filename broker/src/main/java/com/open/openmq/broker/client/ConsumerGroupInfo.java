@@ -1,5 +1,6 @@
 package com.open.openmq.broker.client;
 
+import com.open.openmq.common.consumer.ConsumeFromWhere;
 import com.open.openmq.common.protocol.heartbeat.ConsumeType;
 import com.open.openmq.common.protocol.heartbeat.MessageModel;
 import com.open.openmq.common.protocol.heartbeat.SubscriptionData;
@@ -17,8 +18,8 @@ public class ConsumerGroupInfo {
     private final String groupName;
     private final ConcurrentMap<String/* Topic */, SubscriptionData> subscriptionTable =
             new ConcurrentHashMap<String, SubscriptionData>();
-    private final ConcurrentMap<Channel, ClientChannelInfo> channelInfoTable =
-            new ConcurrentHashMap<Channel, ClientChannelInfo>(16);
+/*    private final ConcurrentMap<Channel, ClientChannelInfo> channelInfoTable =
+            new ConcurrentHashMap<Channel, ClientChannelInfo>(16);*/
     private volatile ConsumeType consumeType;
     private volatile MessageModel messageModel;
     private volatile ConsumeFromWhere consumeFromWhere;
@@ -31,7 +32,5 @@ public class ConsumerGroupInfo {
         this.messageModel = messageModel;
         this.consumeFromWhere = consumeFromWhere;
     }
-
-
 
 }
