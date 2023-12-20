@@ -16,3 +16,8 @@
 | proxy   | Grpc proxy      |
 | common | 通用能力、工具|
 | demo |一些demo示例|
+
+##快速开始
+###源码启动
+step 1、 启动 namesrv  
+step 2、 启动 controller
