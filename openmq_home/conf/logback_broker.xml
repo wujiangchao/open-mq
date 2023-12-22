@@ -1,0 +1,366 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Licensed to the Apache Software Foundation (ASF) under one or more
+  contributor license agreements.  See the NOTICE file distributed with
+  this work for additional information regarding copyright ownership.
+  The ASF licenses this file to You under the Apache License, Version 2.0
+  (the "License"); you may not use this file except in compliance with
+  the License.  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+  -->
+
+<configuration scan="true" scanPeriod="30 seconds">
+    <appender name="DefaultAppender"
+              class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${OPENMQ_HOME}/logs/openmqlogs/${brokerLogDir}/broker_default.log</file>
+        <append>true</append>
+        <rollingPolicy class="ch.qos.logback.core.rolling.FixedWindowRollingPolicy">
+            <fileNamePattern>${OPENMQ_HOME}/logs/openmqlogs/otherdays/${brokerLogDir}/broker_default.%i.log.gz</fileNamePattern>
+            <minIndex>1</minIndex>
+            <maxIndex>10</maxIndex>
+        </rollingPolicy>
+        <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+            <maxFileSize>100MB</maxFileSize>
+        </triggeringPolicy>
+        <encoder>
+            <pattern>%d{yyy-MM-dd HH:mm:ss,GMT+8} %p %t - %m%n</pattern>
+            <charset class="java.nio.charset.Charset">UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <appender name="OpenmqBrokerAppender_inner"
+              class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${OPENMQ_HOME}/logs/openmqlogs/${brokerLogDir}/broker.log</file>
+        <append>true</append>
+        <rollingPolicy class="ch.qos.logback.core.rolling.FixedWindowRollingPolicy">
+            <fileNamePattern>${OPENMQ_HOME}/logs/openmqlogs/otherdays/${brokerLogDir}/broker.%i.log.gz</fileNamePattern>
+            <minIndex>1</minIndex>
+            <maxIndex>20</maxIndex>
+        </rollingPolicy>
+        <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+            <maxFileSize>128MB</maxFileSize>
+        </triggeringPolicy>
+        <encoder>
+            <pattern>%d{yyy-MM-dd HH:mm:ss,GMT+8} %p %t - %m%n</pattern>
+            <charset class="java.nio.charset.Charset">UTF-8</charset>
+        </encoder>
+    </appender>
+    <appender name="OpenmqBrokerAppender" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="OpenmqBrokerAppender_inner"/>
+    </appender>
+
+    <appender name="OpenmqProtectionAppender_inner"
+              class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${OPENMQ_HOME}/logs/openmqlogs/${brokerLogDir}/protection.log</file>
+        <append>true</append>
+        <rollingPolicy class="ch.qos.logback.core.rolling.FixedWindowRollingPolicy">
+            <fileNamePattern>${OPENMQ_HOME}/logs/openmqlogs/otherdays/${brokerLogDir}/protection.%i.log.gz</fileNamePattern>
+            <minIndex>1</minIndex>
+            <maxIndex>10</maxIndex>
+        </rollingPolicy>
+        <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+            <maxFileSize>100MB</maxFileSize>
+        </triggeringPolicy>
+        <encoder>
+            <pattern>%d{yyy-MM-dd HH:mm:ss,GMT+8} - %m%n</pattern>
+            <charset class="java.nio.charset.Charset">UTF-8</charset>
+        </encoder>
+    </appender>
+    <appender name="OpenmqProtectionAppender" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="OpenmqProtectionAppender_inner"/>
+    </appender>
+
+    <appender name="OpenmqWaterMarkAppender_inner"
+              class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${OPENMQ_HOME}/logs/openmqlogs/${brokerLogDir}/watermark.log</file>
+        <append>true</append>
+        <rollingPolicy class="ch.qos.logback.core.rolling.FixedWindowRollingPolicy">
+            <fileNamePattern>${OPENMQ_HOME}/logs/openmqlogs/otherdays/${brokerLogDir}/watermark.%i.log.gz</fileNamePattern>
+            <minIndex>1</minIndex>
+            <maxIndex>10</maxIndex>
+        </rollingPolicy>
+        <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+            <maxFileSize>100MB</maxFileSize>
+        </triggeringPolicy>
+        <encoder>
+            <pattern>%d{yyy-MM-dd HH:mm:ss,GMT+8} - %m%n</pattern>
+            <charset class="java.nio.charset.Charset">UTF-8</charset>
+        </encoder>
+    </appender>
+    <appender name="OpenmqWaterMarkAppender" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="OpenmqWaterMarkAppender_inner"/>
+    </appender>
+
+    <appender name="OpenmqStoreAppender_inner"
+              class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${OPENMQ_HOME}/logs/openmqlogs/${brokerLogDir}/store.log</file>
+        <append>true</append>
+        <rollingPolicy class="ch.qos.logback.core.rolling.FixedWindowRollingPolicy">
+            <fileNamePattern>${OPENMQ_HOME}/logs/openmqlogs/otherdays/${brokerLogDir}/store.%i.log.gz</fileNamePattern>
+            <minIndex>1</minIndex>
+            <maxIndex>10</maxIndex>
+        </rollingPolicy>
+        <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+            <maxFileSize>128MB</maxFileSize>
+        </triggeringPolicy>
+        <encoder>
+            <pattern>%d{yyy-MM-dd HH:mm:ss,GMT+8} %p %t - %m%n</pattern>
+            <charset class="java.nio.charset.Charset">UTF-8</charset>
+        </encoder>
+    </appender>
+    <appender name="OpenmqStoreAppender" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="OpenmqStoreAppender_inner"/>
+    </appender>
+
+    <appender name="OpenmqRemotingAppender_inner"
+              class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${OPENMQ_HOME}/logs/openmqlogs/${brokerLogDir}/remoting.log</file>
+        <append>true</append>
+        <rollingPolicy class="ch.qos.logback.core.rolling.FixedWindowRollingPolicy">
+            <fileNamePattern>${OPENMQ_HOME}/logs/openmqlogs/otherdays/${brokerLogDir}/remoting.%i.log.gz</fileNamePattern>
+            <minIndex>1</minIndex>
+            <maxIndex>10</maxIndex>
+        </rollingPolicy>
+        <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+            <maxFileSize>100MB</maxFileSize>
+        </triggeringPolicy>
+        <encoder>
+            <pattern>%d{yyy-MM-dd HH:mm:ss,GMT+8} %p %t - %m%n</pattern>
+            <charset class="java.nio.charset.Charset">UTF-8</charset>
+        </encoder>
+    </appender>
+    <appender name="OpenmqRemotingAppender" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="OpenmqRemotingAppender_inner"/>
+    </appender>
+
+    <appender name="OpenmqStoreErrorAppender_inner"
+              class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${OPENMQ_HOME}/logs/openmqlogs/${brokerLogDir}/storeerror.log</file>
+        <append>true</append>
+        <rollingPolicy class="ch.qos.logback.core.rolling.FixedWindowRollingPolicy">
+            <fileNamePattern>${OPENMQ_HOME}/logs/openmqlogs/otherdays/${brokerLogDir}/storeerror.%i.log.gz</fileNamePattern>
+            <minIndex>1</minIndex>
+            <maxIndex>10</maxIndex>
+        </rollingPolicy>
+        <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+            <maxFileSize>100MB</maxFileSize>
+        </triggeringPolicy>
+        <encoder>
+            <pattern>%d{yyy-MM-dd HH:mm:ss,GMT+8} %p %t - %m%n</pattern>
+            <charset class="java.nio.charset.Charset">UTF-8</charset>
+        </encoder>
+    </appender>
+    <appender name="OpenmqStoreErrorAppender" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="OpenmqStoreErrorAppender_inner"/>
+    </appender>
+
+
+    <appender name="OpenmqTransactionAppender_inner"
+              class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${OPENMQ_HOME}/logs/openmqlogs/${brokerLogDir}/transaction.log</file>
+        <append>true</append>
+        <rollingPolicy class="ch.qos.logback.core.rolling.FixedWindowRollingPolicy">
+            <fileNamePattern>${OPENMQ_HOME}/logs/openmqlogs/otherdays/${brokerLogDir}/transaction.%i.log.gz</fileNamePattern>
+            <minIndex>1</minIndex>
+            <maxIndex>10</maxIndex>
+        </rollingPolicy>
+        <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+            <maxFileSize>100MB</maxFileSize>
+        </triggeringPolicy>
+        <encoder>
+            <pattern>%d{yyy-MM-dd HH:mm:ss,GMT+8} %p %t - %m%n</pattern>
+            <charset class="java.nio.charset.Charset">UTF-8</charset>
+        </encoder>
+    </appender>
+    <appender name="OpenmqTransactionAppender" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="OpenmqTransactionAppender_inner"/>
+    </appender>
+
+    <appender name="OpenmqRebalanceLockAppender_inner"
+              class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${OPENMQ_HOME}/logs/openmqlogs/${brokerLogDir}/lock.log</file>
+        <append>true</append>
+        <rollingPolicy class="ch.qos.logback.core.rolling.FixedWindowRollingPolicy">
+            <fileNamePattern>${OPENMQ_HOME}/logs/openmqlogs/otherdays/${brokerLogDir}/lock.%i.log.gz</fileNamePattern>
+            <minIndex>1</minIndex>
+            <maxIndex>5</maxIndex>
+        </rollingPolicy>
+        <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+            <maxFileSize>100MB</maxFileSize>
+        </triggeringPolicy>
+        <encoder>
+            <pattern>%d{yyy-MM-dd HH:mm:ss,GMT+8} %p %t - %m%n</pattern>
+            <charset class="java.nio.charset.Charset">UTF-8</charset>
+        </encoder>
+    </appender>
+    <appender name="OpenmqRebalanceLockAppender" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="OpenmqRebalanceLockAppender_inner"/>
+    </appender>
+
+    <appender name="OpenmqFilterAppender_inner"
+              class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${OPENMQ_HOME}/logs/openmqlogs/${brokerLogDir}/filter.log</file>
+        <append>true</append>
+        <rollingPolicy class="ch.qos.logback.core.rolling.FixedWindowRollingPolicy">
+            <fileNamePattern>${OPENMQ_HOME}/logs/openmqlogs/otherdays/${brokerLogDir}/filter.%i.log.gz</fileNamePattern>
+            <minIndex>1</minIndex>
+            <maxIndex>10</maxIndex>
+        </rollingPolicy>
+        <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+            <maxFileSize>100MB</maxFileSize>
+        </triggeringPolicy>
+        <encoder>
+            <pattern>%d{yyy-MM-dd HH:mm:ss,GMT+8} %p %t - %m%n</pattern>
+            <charset class="java.nio.charset.Charset">UTF-8</charset>
+        </encoder>
+    </appender>
+    <appender name="OpenmqFilterAppender" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="OpenmqFilterAppender_inner"/>
+    </appender>
+
+    <appender name="OpenmqStatsAppender"
+              class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${OPENMQ_HOME}/logs/openmqlogs/${brokerLogDir}/stats.log</file>
+        <append>true</append>
+        <rollingPolicy class="ch.qos.logback.core.rolling.FixedWindowRollingPolicy">
+            <fileNamePattern>${OPENMQ_HOME}/logs/openmqlogs/otherdays/${brokerLogDir}/stats.%i.log.gz</fileNamePattern>
+            <minIndex>1</minIndex>
+            <maxIndex>5</maxIndex>
+        </rollingPolicy>
+        <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+            <maxFileSize>100MB</maxFileSize>
+        </triggeringPolicy>
+        <encoder>
+            <pattern>%d{yyy-MM-dd HH:mm:ss,GMT+8} %p - %m%n</pattern>
+            <charset class="java.nio.charset.Charset">UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <appender name="OpenmqCommercialAppender"
+              class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${OPENMQ_HOME}/logs/openmqlogs/${brokerLogDir}/commercial.log</file>
+        <append>true</append>
+        <rollingPolicy class="ch.qos.logback.core.rolling.FixedWindowRollingPolicy">
+            <fileNamePattern>${OPENMQ_HOME}/logs/openmqlogs/otherdays/${brokerLogDir}/commercial.%i.log.gz</fileNamePattern>
+            <minIndex>1</minIndex>
+            <maxIndex>10</maxIndex>
+        </rollingPolicy>
+        <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+            <maxFileSize>500MB</maxFileSize>
+        </triggeringPolicy>
+    </appender>
+
+    <appender name="OpenmqPopAppender_inner"
+              class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${OPENMQ_HOME}/logs/openmqlogs/pop.log</file>
+        <append>true</append>
+        <rollingPolicy class="ch.qos.logback.core.rolling.FixedWindowRollingPolicy">
+            <fileNamePattern>${OPENMQ_HOME}/logs/openmqlogs/otherdays/pop.%i.log
+            </fileNamePattern>
+            <minIndex>1</minIndex>
+            <maxIndex>20</maxIndex>
+        </rollingPolicy>
+        <triggeringPolicy
+            class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+            <maxFileSize>128MB</maxFileSize>
+        </triggeringPolicy>
+        <encoder>
+            <pattern>%d{yyy-MM-dd HH:mm:ss,GMT+8} %p %t - %m%n</pattern>
+            <charset class="java.nio.charset.Charset">UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <appender name="OpenmqPopAppender" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="OpenmqPopAppender_inner"/>
+    </appender>
+
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <append>true</append>
+        <encoder>
+            <pattern>%d{yyy-MM-dd HH:mm:ss,GMT+8} %p %t - %m%n</pattern>
+            <charset class="java.nio.charset.Charset">UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <logger name="OpenmqBroker" additivity="false">
+        <level value="INFO"/>
+        <appender-ref ref="OpenmqBrokerAppender"/>
+    </logger>
+
+    <logger name="OpenmqProtection" additivity="false">
+        <level value="INFO"/>
+        <appender-ref ref="OpenmqProtectionAppender"/>
+    </logger>
+
+    <logger name="OpenmqWaterMark" additivity="false">
+        <level value="INFO"/>
+        <appender-ref ref="OpenmqWaterMarkAppender"/>
+    </logger>
+
+    <logger name="OpenmqCommon" additivity="false">
+        <level value="INFO"/>
+        <appender-ref ref="OpenmqBrokerAppender"/>
+    </logger>
+
+    <logger name="OpenmqStore" additivity="false">
+        <level value="INFO"/>
+        <appender-ref ref="OpenmqStoreAppender"/>
+    </logger>
+
+    <logger name="OpenmqStoreError" additivity="false">
+        <level value="INFO"/>
+        <appender-ref ref="OpenmqStoreErrorAppender"/>
+    </logger>
+
+    <logger name="OpenmqTransaction" additivity="false">
+        <level value="INFO"/>
+        <appender-ref ref="OpenmqTransactionAppender"/>
+    </logger>
+
+    <logger name="OpenmqRebalanceLock" additivity="false">
+        <level value="INFO"/>
+        <appender-ref ref="OpenmqRebalanceLockAppender"/>
+    </logger>
+
+    <logger name="OpenmqRemoting" additivity="false">
+        <level value="INFO"/>
+        <appender-ref ref="OpenmqRemotingAppender"/>
+    </logger>
+
+    <logger name="OpenmqStats" additivity="false">
+        <level value="INFO"/>
+        <appender-ref ref="OpenmqStatsAppender"/>
+    </logger>
+
+    <logger name="OpenmqCommercial" additivity="false">
+        <level value="INFO"/>
+        <appender-ref ref="OpenmqCommercialAppender"/>
+    </logger>
+
+    <logger name="OpenmqFilter" additivity="false">
+        <level value="INFO"/>
+        <appender-ref ref="OpenmqFilterAppender"/>
+    </logger>
+
+    <logger name="OpenmqConsole" additivity="false">
+        <level value="INFO"/>
+        <appender-ref ref="STDOUT"/>
+    </logger>
+
+    <logger name="OpenmqPop" additivity="false">
+        <level value="INFO" />
+        <appender-ref ref="OpenmqPopAppender" />
+    </logger>
+
+    <root>
+        <level value="INFO"/>
+        <appender-ref ref="DefaultAppender"/>
+    </root>
+</configuration>
